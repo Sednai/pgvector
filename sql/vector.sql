@@ -231,3 +231,14 @@ CREATE OPERATOR CLASS vector_cosine_ops
 	FUNCTION 2 vector_norm(vector),
 	FUNCTION 3 vector_spherical_distance(vector, vector),
 	FUNCTION 4 vector_norm(vector);
+
+create function create_global_index(TEXT,TEXT,TEXT,INT,INT,FLOAT4) RETURNS BOOLEAN as 
+$fn$
+    DECLARE
+        cents text;
+    BEGIN
+        cents = (select '''{'||array_to_string(C,',')||'}''' from (select kmeans($2,$3,$4,$5,$6,False,0,False) as C) as ctext);
+        EXECUTE FORMAT('CREATE INDEX ON %s USING ivfflat (%s vector_l2_ops) WITH (lists = %s, centroids=%s)',$1,$3,$4,cents);
+        RETURN 1;
+    END;
+$fn$ language 'plpgsql';
