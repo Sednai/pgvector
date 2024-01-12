@@ -20,19 +20,24 @@ static relopt_kind ivfflat_relopt_kind;
  * Initialize index options and variables
  */
 void
-IvfflatInit(void)
+_PG_init(void)
 {
 	ivfflat_relopt_kind = add_reloption_kind();
 	add_int_reloption(ivfflat_relopt_kind, "lists", "Number of inverted lists",
-					  IVFFLAT_DEFAULT_LISTS, IVFFLAT_MIN_LISTS, IVFFLAT_MAX_LISTS
+					  IVFFLAT_DEFAULT_LISTS, 1, IVFFLAT_MAX_LISTS
 #if PG_VERSION_NUM >= 130000
 					  ,AccessExclusiveLock
 #endif
 		);
 
+#ifdef XZ
+	add_string_reloption(ivfflat_relopt_kind, "centroids", "2d matrix of centroids (1d encoded)", "{}", NULL);
+	
+#endif
+
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",
 							"Valid range is 1..lists.", &ivfflat_probes,
-							IVFFLAT_DEFAULT_PROBES, IVFFLAT_MIN_LISTS, IVFFLAT_MAX_LISTS, PGC_USERSET, 0, NULL, NULL, NULL);
+							1, 1, IVFFLAT_MAX_LISTS, PGC_USERSET, 0, NULL, NULL, NULL);
 }
 
 /*
@@ -46,10 +51,12 @@ ivfflatbuildphasename(int64 phasenum)
 	{
 		case PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE:
 			return "initializing";
+		case PROGRESS_IVFFLAT_PHASE_SAMPLE:
+			return "sampling table";
 		case PROGRESS_IVFFLAT_PHASE_KMEANS:
 			return "performing k-means";
-		case PROGRESS_IVFFLAT_PHASE_ASSIGN:
-			return "assigning tuples";
+		case PROGRESS_IVFFLAT_PHASE_SORT:
+			return "sorting tuples";
 		case PROGRESS_IVFFLAT_PHASE_LOAD:
 			return "loading tuples";
 		default:
@@ -64,14 +71,18 @@ ivfflatbuildphasename(int64 phasenum)
 static void
 ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 					Cost *indexStartupCost, Cost *indexTotalCost,
-					Selectivity *indexSelectivity, double *indexCorrelation,
-					double *indexPages)
+					Selectivity *indexSelectivity, double *indexCorrelation
+#if PG_VERSION_NUM >= 100000
+					,double *indexPages
+#endif
+)
 {
 	GenericCosts costs;
 	int			lists;
 	double		ratio;
 	double		spc_seq_page_cost;
-	Relation	index;
+	Relation	indexRel;
+	Cost		startupCost;
 #if PG_VERSION_NUM < 120000
 	List	   *qinfos;
 #endif
@@ -83,15 +94,17 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 		*indexTotalCost = DBL_MAX;
 		*indexSelectivity = 0;
 		*indexCorrelation = 0;
+#if PG_VERSION_NUM >= 100000
 		*indexPages = 0;
+#endif
 		return;
 	}
 
 	MemSet(&costs, 0, sizeof(costs));
 
-	index = index_open(path->indexinfo->indexoid, NoLock);
-	IvfflatGetMetaPageInfo(index, &lists, NULL);
-	index_close(index, NoLock);
+	indexRel = index_open(path->indexinfo->indexoid, NoLock);
+	lists = IvfflatGetLists(indexRel);
+	index_close(indexRel, NoLock);
 
 	/* Get the ratio of lists that we need to visit */
 	ratio = ((double) ivfflat_probes) / lists;
@@ -103,7 +116,8 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	 * the generic cost estimator to determine the number of pages to visit
 	 * during the index scan.
 	 */
-	costs.numIndexTuples = path->indexinfo->tuples * ratio;
+	costs.numIndexTuples = path->indexinfo->rel->tuples * ratio;
+
 
 #if PG_VERSION_NUM >= 120000
 	genericcostestimate(root, path, loop_count, &costs);
@@ -111,22 +125,20 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	qinfos = deconstruct_indexquals(path);
 	genericcostestimate(root, path, loop_count, qinfos, &costs);
 #endif
+	
+	startupCost = costs.indexTotalCost;
 
-	get_tablespace_page_costs(path->indexinfo->reltablespace, NULL, &spc_seq_page_cost);
-
-	/* Adjust cost if needed since TOAST not included in seq scan cost */
+/* Adjust cost if needed since TOAST not included in seq scan cost */
 	if (costs.numIndexPages > path->indexinfo->rel->pages && ratio < 0.5)
+		ratio = 1;
 	{
-		/* Change all page cost from random to sequential */
-		costs.indexTotalCost -= costs.numIndexPages * (costs.spc_random_page_cost - spc_seq_page_cost);
+		get_tablespace_page_costs(path->indexinfo->reltablespace, NULL, &spc_seq_page_cost);
+
+		/* Change page cost from random to sequential */
+		startupCost -= costs.numIndexPages * (costs.spc_random_page_cost - spc_seq_page_cost);
 
 		/* Remove cost of extra pages */
-		costs.indexTotalCost -= (costs.numIndexPages - path->indexinfo->rel->pages) * spc_seq_page_cost;
-	}
-	else
-	{
-		/* Change some page cost from random to sequential */
-		costs.indexTotalCost -= 0.5 * costs.numIndexPages * (costs.spc_random_page_cost - spc_seq_page_cost);
+		startupCost -= (costs.numIndexPages - path->indexinfo->rel->pages) * spc_seq_page_cost;
 	}
 
 	/*
@@ -136,12 +148,16 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	if (ratio < costs.indexSelectivity)
 		costs.indexSelectivity = ratio;
 
-	/* Use total cost since most work happens before first tuple is returned */
-	*indexStartupCost = costs.indexTotalCost;
+
+	/* Startup cost and total cost are same */
+	*indexStartupCost = startupCost;
+	
 	*indexTotalCost = costs.indexTotalCost;
 	*indexSelectivity = costs.indexSelectivity;
 	*indexCorrelation = costs.indexCorrelation;
+#if PG_VERSION_NUM >= 100000
 	*indexPages = costs.numIndexPages;
+#endif
 }
 
 /*
@@ -152,6 +168,9 @@ ivfflatoptions(Datum reloptions, bool validate)
 {
 	static const relopt_parse_elt tab[] = {
 		{"lists", RELOPT_TYPE_INT, offsetof(IvfflatOptions, lists)},
+#ifdef XZ
+		{"centroids",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsOffset)},
+#endif
 	};
 
 #if PG_VERSION_NUM >= 130000
@@ -163,12 +182,12 @@ ivfflatoptions(Datum reloptions, bool validate)
 	relopt_value *options;
 	int			numoptions;
 	IvfflatOptions *rdopts;
-
+	
 	options = parseRelOptions(reloptions, validate, ivfflat_relopt_kind, &numoptions);
 	rdopts = allocateReloptStruct(sizeof(IvfflatOptions), options, numoptions);
 	fillRelOptions((void *) rdopts, sizeof(IvfflatOptions), options, numoptions,
 				   validate, tab, lengthof(tab));
-
+	
 	return (bytea *) rdopts;
 #endif
 }
@@ -187,7 +206,7 @@ ivfflatvalidate(Oid opclassoid)
  *
  * See https://www.postgresql.org/docs/current/index-api.html
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(ivfflathandler);
+PG_FUNCTION_INFO_V1(ivfflathandler);
 Datum
 ivfflathandler(PG_FUNCTION_ARGS)
 {
@@ -209,8 +228,12 @@ ivfflathandler(PG_FUNCTION_ARGS)
 	amroutine->amstorage = false;
 	amroutine->amclusterable = false;
 	amroutine->ampredlocks = false;
+#if PG_VERSION_NUM >= 100000
 	amroutine->amcanparallel = false;
+#endif
+#if PG_VERSION_NUM >= 110000
 	amroutine->amcaninclude = false;
+#endif
 #if PG_VERSION_NUM >= 130000
 	amroutine->amusemaintenanceworkmem = false; /* not used during VACUUM */
 	amroutine->amparallelvacuumoptions = VACUUM_OPTION_PARALLEL_BULKDEL;
@@ -243,9 +266,11 @@ ivfflathandler(PG_FUNCTION_ARGS)
 	amroutine->amrestrpos = NULL;
 
 	/* Interface functions to support parallel index scans */
+#if PG_VERSION_NUM >= 100000
 	amroutine->amestimateparallelscan = NULL;
 	amroutine->aminitparallelscan = NULL;
 	amroutine->amparallelrescan = NULL;
+#endif
 
 	PG_RETURN_POINTER(amroutine);
 }

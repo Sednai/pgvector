@@ -12,23 +12,34 @@ ivfflatbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 				  IndexBulkDeleteCallback callback, void *callback_state)
 {
 	Relation	index = info->index;
-	BlockNumber blkno = IVFFLAT_HEAD_BLKNO;
+	Buffer		cbuf;
+	Page		cpage;
+	Buffer		buf;
+	Page		page;
+	IvfflatList list;
+	IndexTuple	itup;
+	ItemPointer htup;
+	OffsetNumber deletable[MaxOffsetNumber];
+	int			ndeletable;
+	BlockNumber startPages[MaxOffsetNumber];
+	BlockNumber nextblkno = IVFFLAT_HEAD_BLKNO;
+	BlockNumber searchPage;
+	BlockNumber insertPage;
+	GenericXLogState *state;
+	OffsetNumber coffno;
+	OffsetNumber cmaxoffno;
+	OffsetNumber offno;
+	OffsetNumber maxoffno;
+	ListInfo	listInfo;
 	BufferAccessStrategy bas = GetAccessStrategy(BAS_BULKREAD);
 
 	if (stats == NULL)
 		stats = (IndexBulkDeleteResult *) palloc0(sizeof(IndexBulkDeleteResult));
 
 	/* Iterate over list pages */
-	while (BlockNumberIsValid(blkno))
+	while (BlockNumberIsValid(nextblkno))
 	{
-		Buffer		cbuf;
-		Page		cpage;
-		OffsetNumber coffno;
-		OffsetNumber cmaxoffno;
-		BlockNumber startPages[MaxOffsetNumber];
-		ListInfo	listInfo;
-
-		cbuf = ReadBuffer(index, blkno);
+		cbuf = ReadBuffer(index, nextblkno);
 		LockBuffer(cbuf, BUFFER_LOCK_SHARE);
 		cpage = BufferGetPage(cbuf);
 
@@ -37,32 +48,23 @@ ivfflatbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 		/* Iterate over lists */
 		for (coffno = FirstOffsetNumber; coffno <= cmaxoffno; coffno = OffsetNumberNext(coffno))
 		{
-			IvfflatList list = (IvfflatList) PageGetItem(cpage, PageGetItemId(cpage, coffno));
-
+			list = (IvfflatList) PageGetItem(cpage, PageGetItemId(cpage, coffno));
 			startPages[coffno - FirstOffsetNumber] = list->startPage;
 		}
 
-		listInfo.blkno = blkno;
-		blkno = IvfflatPageGetOpaque(cpage)->nextblkno;
+		listInfo.blkno = nextblkno;
+		nextblkno = IvfflatPageGetOpaque(cpage)->nextblkno;
 
 		UnlockReleaseBuffer(cbuf);
 
 		for (coffno = FirstOffsetNumber; coffno <= cmaxoffno; coffno = OffsetNumberNext(coffno))
 		{
-			BlockNumber searchPage = startPages[coffno - FirstOffsetNumber];
-			BlockNumber insertPage = InvalidBlockNumber;
+			searchPage = startPages[coffno - FirstOffsetNumber];
+			insertPage = InvalidBlockNumber;
 
 			/* Iterate over entry pages */
 			while (BlockNumberIsValid(searchPage))
 			{
-				Buffer		buf;
-				Page		page;
-				GenericXLogState *state;
-				OffsetNumber offno;
-				OffsetNumber maxoffno;
-				OffsetNumber deletable[MaxOffsetNumber];
-				int			ndeletable;
-
 				vacuum_delay_point();
 
 				buf = ReadBufferExtended(index, MAIN_FORKNUM, searchPage, RBM_NORMAL, bas);
@@ -84,8 +86,8 @@ ivfflatbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 				/* Find deleted tuples */
 				for (offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno))
 				{
-					IndexTuple	itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, offno));
-					ItemPointer htup = &(itup->t_tid);
+					itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, offno));
+					htup = &(itup->t_tid);
 
 					if (callback(htup, callback_state))
 					{
@@ -107,6 +109,7 @@ ivfflatbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 				{
 					/* Delete tuples */
 					PageIndexMultiDelete(page, deletable, ndeletable);
+					MarkBufferDirty(buf);
 					GenericXLogFinish(state);
 				}
 				else
@@ -124,12 +127,10 @@ ivfflatbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 			if (BlockNumberIsValid(insertPage))
 			{
 				listInfo.offno = coffno;
-				IvfflatUpdateList(index, listInfo, insertPage, InvalidBlockNumber, InvalidBlockNumber, MAIN_FORKNUM);
+				IvfflatUpdateList(index, state, listInfo, insertPage, InvalidBlockNumber, InvalidBlockNumber, MAIN_FORKNUM);
 			}
 		}
 	}
-
-	FreeAccessStrategy(bas);
 
 	return stats;
 }
@@ -142,11 +143,6 @@ ivfflatvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 {
 	Relation	rel = info->index;
 
-	if (info->analyze_only)
-		return stats;
-
-	/* stats is NULL if ambulkdelete not called */
-	/* OK to return NULL if index not changed */
 	if (stats == NULL)
 		return NULL;
 

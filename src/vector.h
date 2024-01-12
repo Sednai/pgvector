@@ -1,7 +1,10 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
-#define VECTOR_MAX_DIM 16000
+#include "postgres.h"
+
+
+#define VECTOR_MAX_DIM 1024
 
 #define VECTOR_SIZE(_dim)		(offsetof(Vector, x) + sizeof(float)*(_dim))
 #define DatumGetVector(x)		((Vector *) PG_DETOAST_DATUM(x))
@@ -16,8 +19,41 @@ typedef struct Vector
 	float		x[FLEXIBLE_ARRAY_MEMBER];
 }			Vector;
 
-Vector	   *InitVector(int dim);
 void		PrintVector(char *msg, Vector * vector);
 int			vector_cmp_internal(Vector * a, Vector * b);
+
+#ifdef XZ
+typedef struct VectorArrayData
+{
+	int			length;
+	int			maxlen;
+	int			dim;
+	Vector		items[FLEXIBLE_ARRAY_MEMBER];
+}			VectorArrayData;
+
+typedef VectorArrayData * VectorArray;
+#endif
+
+
+/*
+ * Allocate and initialize a new vector
+ */
+static inline Vector *
+InitVector(int dim)
+{
+	Vector	   *result;
+	int			size;
+
+	size = VECTOR_SIZE(dim);
+	result = (Vector *) palloc0(size);
+	SET_VARSIZE(result, size);
+	result->dim = dim;
+
+	return result;
+}
+
+#ifdef XZ
+int vectorarray_in(char* str, int N, int dim, VectorArray centroids);
+#endif
 
 #endif

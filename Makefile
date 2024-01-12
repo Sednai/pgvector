@@ -1,28 +1,21 @@
 EXTENSION = vector
-EXTVERSION = 0.5.1
+EXTVERSION = 0.3.2
 
 MODULE_big = vector
 DATA = $(wildcard sql/*--*.sql)
-OBJS = src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o
-HEADERS = src/vector.h
+OBJS = src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
-REGRESS_OPTS = --inputdir=test --load-extension=$(EXTENSION)
+REGRESS_OPTS = --inputdir=test
 
-OPTFLAGS = -march=native
+OPTFLAGS = -march=native -DXZ
 
 # Mac ARM doesn't support -march=native
 ifeq ($(shell uname -s), Darwin)
 	ifeq ($(shell uname -p), arm)
-		# no difference with -march=armv8.5-a
 		OPTFLAGS =
 	endif
-endif
-
-# PowerPC doesn't support -march=native
-ifneq ($(filter ppc64%, $(shell uname -m)), )
-	OPTFLAGS =
 endif
 
 # For auto-vectorization:
@@ -47,11 +40,6 @@ PG_CONFIG ?= pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
-# for Mac
-ifeq ($(PROVE),)
-	PROVE = prove
-endif
-
 # for Postgres 15
 PROVE_FLAGS += -I ./test/perl
 
@@ -68,10 +56,4 @@ dist:
 .PHONY: docker
 
 docker:
-	docker build --pull --no-cache --platform linux/amd64 -t ankane/pgvector:latest .
-
-.PHONY: docker-release
-
-docker-release:
-	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 -t ankane/pgvector:latest .
-	docker buildx build --push --platform linux/amd64,linux/arm64 -t ankane/pgvector:v$(EXTVERSION) .
+	docker build --pull --no-cache -t ankane/pgvector:latest .

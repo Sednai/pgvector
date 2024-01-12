@@ -10,23 +10,12 @@
 VectorArray
 VectorArrayInit(int maxlen, int dimensions)
 {
-	VectorArray res = palloc(sizeof(VectorArrayData));
+	VectorArray res = palloc_extended(VECTOR_ARRAY_SIZE(maxlen, dimensions), MCXT_ALLOC_ZERO | MCXT_ALLOC_HUGE);
 
 	res->length = 0;
 	res->maxlen = maxlen;
 	res->dim = dimensions;
-	res->items = palloc_extended(maxlen * VECTOR_SIZE(dimensions), MCXT_ALLOC_ZERO | MCXT_ALLOC_HUGE);
 	return res;
-}
-
-/*
- * Free a vector array
- */
-void
-VectorArrayFree(VectorArray arr)
-{
-	pfree(arr->items);
-	pfree(arr);
 }
 
 /*
@@ -35,7 +24,9 @@ VectorArrayFree(VectorArray arr)
 void
 PrintVectorArray(char *msg, VectorArray arr)
 {
-	for (int i = 0; i < arr->length; i++)
+	int			i;
+
+	for (i = 0; i < arr->length; i++)
 		PrintVector(msg, VectorArrayGet(arr, i));
 }
 
@@ -53,16 +44,33 @@ IvfflatGetLists(Relation index)
 	return IVFFLAT_DEFAULT_LISTS;
 }
 
+#ifdef XZ
+/*
+ * Get supplied centroids
+ */
+char*
+IvfflatGetCentroids(Relation index)
+{
+	IvfflatOptions *opts = (IvfflatOptions *) index->rd_options;
+
+	if (opts)
+		return (char *) opts + opts->centroidsOffset;
+	
+	return IVFFLAT_DEFAULT_CENTROIDS;
+}
+#endif
+
+
 /*
  * Get proc
  */
 FmgrInfo *
-IvfflatOptionalProcInfo(Relation index, uint16 procnum)
+IvfflatOptionalProcInfo(Relation rel, uint16 procnum)
 {
-	if (!OidIsValid(index_getprocid(index, 1, procnum)))
+	if (!OidIsValid(index_getprocid(rel, 1, procnum)))
 		return NULL;
 
-	return index_getprocinfo(index, 1, procnum);
+	return index_getprocinfo(rel, 1, procnum);
 }
 
 /*
@@ -76,16 +84,20 @@ IvfflatOptionalProcInfo(Relation index, uint16 procnum)
 bool
 IvfflatNormValue(FmgrInfo *procinfo, Oid collation, Datum *value, Vector * result)
 {
-	double		norm = DatumGetFloat8(FunctionCall1Coll(procinfo, collation, *value));
+	Vector	   *v;
+	int			i;
+	double		norm;
+
+	norm = DatumGetFloat8(FunctionCall1Coll(procinfo, collation, *value));
 
 	if (norm > 0)
 	{
-		Vector	   *v = DatumGetVector(*value);
+		v = (Vector *) DatumGetPointer(*value);
 
 		if (result == NULL)
 			result = InitVector(v->dim);
 
-		for (int i = 0; i < v->dim; i++)
+		for (i = 0; i < v->dim; i++)
 			result->x[i] = v->x[i] / norm;
 
 		*value = PointerGetDatum(result);
@@ -136,6 +148,7 @@ IvfflatInitRegisterPage(Relation index, Buffer *buf, Page *page, GenericXLogStat
 void
 IvfflatCommitBuffer(Buffer buf, GenericXLogState *state)
 {
+	MarkBufferDirty(buf);
 	GenericXLogFinish(state);
 	UnlockReleaseBuffer(buf);
 }
@@ -159,6 +172,8 @@ IvfflatAppendPage(Relation index, Buffer *buf, Page *page, GenericXLogState **st
 	IvfflatInitPage(newbuf, newpage);
 
 	/* Commit */
+	MarkBufferDirty(*buf);
+	MarkBufferDirty(newbuf);
 	GenericXLogFinish(*state);
 
 	/* Unlock */
@@ -170,39 +185,15 @@ IvfflatAppendPage(Relation index, Buffer *buf, Page *page, GenericXLogState **st
 }
 
 /*
- * Get the metapage info
- */
-void
-IvfflatGetMetaPageInfo(Relation index, int *lists, int *dimensions)
-{
-	Buffer		buf;
-	Page		page;
-	IvfflatMetaPage metap;
-
-	buf = ReadBuffer(index, IVFFLAT_METAPAGE_BLKNO);
-	LockBuffer(buf, BUFFER_LOCK_SHARE);
-	page = BufferGetPage(buf);
-	metap = IvfflatPageGetMeta(page);
-
-	*lists = metap->lists;
-
-	if (dimensions != NULL)
-		*dimensions = metap->dimensions;
-
-	UnlockReleaseBuffer(buf);
-}
-
-/*
  * Update the start or insert page of a list
  */
 void
-IvfflatUpdateList(Relation index, ListInfo listInfo,
+IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo,
 				  BlockNumber insertPage, BlockNumber originalInsertPage,
 				  BlockNumber startPage, ForkNumber forkNum)
 {
 	Buffer		buf;
 	Page		page;
-	GenericXLogState *state;
 	IvfflatList list;
 	bool		changed = false;
 
