@@ -4,6 +4,11 @@
 #include "storage/bufmgr.h"
 #include "vector.h"
 
+#ifdef XZ
+#include "executor/spi.h" 
+#include "catalog/pg_type.h"
+#endif
+
 /*
  * Allocate a vector array
  */
@@ -57,6 +62,34 @@ IvfflatGetCentroids(Relation index)
 		return (char *) opts + opts->centroidsOffset;
 	
 	return IVFFLAT_DEFAULT_CENTROIDS;
+}
+
+/*
+ * Get supplied centroid table
+ */
+char*
+IvfflatGetCentroidsTable(Relation index)
+{
+	IvfflatOptions *opts = (IvfflatOptions *) index->rd_options;
+
+	if (opts)
+		return (char *) opts + opts->centroidsTableOffset;
+	
+	return IVFFLAT_DEFAULT_CENTROIDSTABLE;
+}
+
+/*
+ * Get supplied centroid column
+ */
+char*
+IvfflatGetCentroidsCol(Relation index)
+{
+	IvfflatOptions *opts = (IvfflatOptions *) index->rd_options;
+
+	if (opts)
+		return (char *) opts + opts->centroidsColOffset;
+	
+	return IVFFLAT_DEFAULT_CENTROIDSCOL;
 }
 #endif
 
@@ -229,3 +262,136 @@ IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo,
 		UnlockReleaseBuffer(buf);
 	}
 }
+
+#ifdef XZ
+void getCentroidsFromTable(char* tabname, char* colname,int N, int dim, VectorArray centroids) {
+
+	// SPI connect to server
+    SPI_connect();
+    
+	char* query_cmd_1 = "select exists (select 1 from information_schema.columns where table_name='";
+	char* query_cmd_2 = "' and column_name='";
+
+	char query[strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(tabname)+strlen(colname)+1];
+	strcpy(query,query_cmd_1);
+	strcat(query,tabname);
+	strcat(query,query_cmd_2);
+	strcat(query,colname);
+	strcat(query,"')");
+	
+	// 1. Check if table exists
+  	SPIPlanPtr plan = SPI_prepare_cursor(query, 0, NULL, 0);
+            
+    Portal prtl = SPI_cursor_open(NULL, plan, NULL, NULL, true);
+	
+	SPI_cursor_fetch(prtl, true, 1);
+	bool table_found = false;
+
+	TupleDesc tupdesc;
+	SPITupleTable *tuptable;
+
+	if (SPI_processed > 0) {
+		tupdesc = SPI_tuptable->tupdesc;
+		tuptable = SPI_tuptable;
+	 	HeapTuple row = tuptable->vals[0];
+		bool isnull;
+		Datum col = SPI_getbinval(row, tupdesc, 1, &isnull);
+        table_found =  DatumGetBool(col);        
+	}
+
+	SPI_cursor_close(prtl);
+
+	if(table_found) {
+		// 2. Query for centroids
+		
+		char* query_cmd_2_1 = "select ";
+		char* query_cmd_2_2 = " from ";
+		
+		char query2[strlen(query_cmd_2_1)+strlen(query_cmd_2_2)+strlen(tabname)+strlen(colname)];
+	
+		strcpy(query2,query_cmd_2_1);
+		strcat(query2,colname);
+		strcat(query2,query_cmd_2_2);
+		strcat(query2,tabname);
+
+		plan = SPI_prepare_cursor(query2, 0, NULL, 0);
+		prtl = SPI_cursor_open(NULL, plan, NULL, NULL, true);
+
+		SPI_cursor_fetch(prtl, true, N);
+		bool table_found = false;
+		bool isnull = false;
+		bool sizemismatch = false;
+		bool typemismatch = false;
+
+		if (SPI_processed > 0) {
+			tupdesc = SPI_tuptable->tupdesc;
+			tuptable = SPI_tuptable;
+		
+			// Build vector array
+			for(int i = 0; i < SPI_processed; i++) {
+				HeapTuple row = tuptable->vals[i];
+				Datum col = SPI_getbinval(row, tupdesc, 1, &isnull);
+				if(!isnull) {
+					// Convert array 
+					ArrayType* arr = DatumGetArrayTypeP( col );
+					
+					int size = (int) ArrayGetNItems(ARR_NDIM(arr), ARR_DIMS(arr));
+					
+					int type = (int) ARR_ELEMTYPE(arr);
+					
+					if(type!=FLOAT4OID) {
+						typemismatch = true;
+						break;
+					}
+
+					if(size != dim) {
+						sizemismatch = true;
+						break;
+					}
+				
+					float* data = (float*) ARR_DATA_PTR(arr); 
+					Vector* result = InitVector(dim);
+					for (int j = 0; j < dim; j++)
+						result->x[j] = data[j];
+					
+					VectorArraySet(centroids, i, result);
+					centroids->length++;
+	
+				} else {
+					break;
+				}
+			}
+		}
+
+		SPI_cursor_close(prtl);
+		SPI_finish();
+
+		if(isnull) {
+			elog(ERROR,"Centroid array with NULLs detected");
+		}
+
+		if(sizemismatch) {
+			elog(ERROR,"Centroid with non fitting dimension detected");
+		}
+	
+		if(typemismatch) {
+			elog(ERROR,"Centroid with non fitting typeoid detected. Float4[] is required");
+		}
+
+
+	} else {
+		SPI_finish();
+
+		elog(ERROR,"Centroid table %s with column %s no found", tabname, colname);
+	}
+
+	if(centroids->length!=N) {
+		elog(ERROR,"Too few centroids found in table (%d of %d)",centroids->length,N);
+	}
+
+}
+
+
+
+
+#endif

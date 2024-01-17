@@ -582,19 +582,33 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 	InitBuildState(buildstate, heap, index, indexInfo);
 
 #ifdef XZ
-	char* centroids = IvfflatGetCentroids(index);
 
-	elog(WARNING,"[DEBUG]: supplied Centroids -> %s | # lists: %d",centroids,buildstate->centers->maxlen);
+	char* centroidstable = IvfflatGetCentroidsTable(index);
+	if( strlen(centroidstable) > 0 && strcmp(centroidstable,"none") != 0) {
+		
+		char* centroidscol = IvfflatGetCentroidsCol(index);
+	
+		if(strlen(centroidscol) > 0 && strcmp(centroidscol,"none") != 0) {
+			getCentroidsFromTable(centroidstable,centroidscol,buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers);
+		} else {
+			elog(ERROR,"No column name supplied for table %s",centroidstable);
+		}
 
-	// Convert text to VectorArray
-	vectorarray_in(centroids, buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers); 
+	} else {	
+		char* centroids = IvfflatGetCentroids(index);
+		elog(WARNING,"[DEBUG]: manually supplied Centroids -> %s | # lists: %d",centroids,buildstate->centers->maxlen);
+	
+		// Convert text to VectorArray
+		vectorarray_in(centroids, buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers); 
+	}
+	
 
 	if(buildstate->centers->length == 0) {
 		ComputeCenters(buildstate);
 	} else {
-		VectorArray	result = VectorArrayGet(buildstate->centers,0);
+		VectorArray	result = VectorArrayGet(buildstate->centers,19);
 		
-		PrintVector("DEBUG final:", result);
+		PrintVector("DEBUG:", result);
 		elog(WARNING,"DEBUG: # centroids in VA: %d",buildstate->centers->length);
 	}
 #else
