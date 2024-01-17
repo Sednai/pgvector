@@ -35,7 +35,12 @@
 #define IVFFLAT_DEFAULT_LISTS	100
 #define IVFFLAT_MAX_LISTS		32768
 
-#define IVFFLAT_DEFAULT_CENTROIDS	'{}'
+#ifdef XZ
+#define IVFFLAT_DEFAULT_CENTROIDS	"{}"
+#define IVFFLAT_DEFAULT_CENTROIDSTABLE	"none"
+#define IVFFLAT_DEFAULT_CENTROIDSCOL	"none"
+
+#endif
 
 /* Build phases */
 /* PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE is 1 */
@@ -91,7 +96,10 @@ typedef struct IvfflatOptions
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int			lists;			/* number of lists */
+// XZ
 	int			centroidsOffset;/* centroids */
+	int			centroidsTableOffset; /* centroid table */
+	int			centroidsColOffset; /* centroid column */
 }			IvfflatOptions;
 
 typedef struct IvfflatBuildState
@@ -212,6 +220,8 @@ bool		IvfflatNormValue(FmgrInfo *procinfo, Oid collation, Datum *value, Vector *
 int			IvfflatGetLists(Relation index);
 #ifdef XZ
 char*		IvfflatGetCentroids(Relation index);
+char*		IvfflatGetCentroidsTable(Relation index);
+char*		IvfflatGetCentroidsCol(Relation index);
 #endif
 void		IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo, BlockNumber insertPage, BlockNumber originalInsertPage, BlockNumber startPage, ForkNumber forkNum);
 void		IvfflatCommitBuffer(Buffer buf, GenericXLogState *state);

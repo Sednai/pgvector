@@ -32,7 +32,8 @@ _PG_init(void)
 
 #ifdef XZ
 	add_string_reloption(ivfflat_relopt_kind, "centroids", "2d matrix of centroids (1d encoded)", "{}", NULL);
-	
+	add_string_reloption(ivfflat_relopt_kind, "centroids_table", "Table with one centroid per row", "", NULL);
+	add_string_reloption(ivfflat_relopt_kind, "centroids_col", "Column name for centroids", "", NULL);
 #endif
 
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",
@@ -170,6 +171,8 @@ ivfflatoptions(Datum reloptions, bool validate)
 		{"lists", RELOPT_TYPE_INT, offsetof(IvfflatOptions, lists)},
 #ifdef XZ
 		{"centroids",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsOffset)},
+		{"centroids_table",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsTableOffset)},
+		{"centroids_col",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsColOffset)},	
 #endif
 	};
 
