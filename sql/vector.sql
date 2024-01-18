@@ -232,7 +232,24 @@ CREATE OPERATOR CLASS vector_cosine_ops
 	FUNCTION 3 vector_spherical_distance(vector, vector),
 	FUNCTION 4 vector_norm(vector);
 
-create function create_global_index(TEXT,TEXT,TEXT,INT,INT,FLOAT4) RETURNS BOOLEAN as 
+-- XZ functions
+CREATE OR REPLACE FUNCTION unnest_2d_1d_string(ANYARRAY, TEXT)
+  RETURNS BOOLEAN
+  LANGUAGE plpgsql AS
+$func$
+DECLARE
+		tmp float4[];
+		tab ALIAS for $2;
+BEGIN
+   FOREACH tmp SLICE 1 IN ARRAY $1 LOOP
+   		 EXECUTE format('INSERT INTO %I values($1)',tab) USING tmp;
+   END LOOP;
+  RETURN 1;
+END
+$func$;
+
+
+create or replace function create_global_index(TEXT,TEXT,TEXT,INT,INT,FLOAT4) RETURNS BOOLEAN as 
 $fn$
     DECLARE
         cents text;
