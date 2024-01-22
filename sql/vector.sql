@@ -19,6 +19,7 @@ CREATE FUNCTION vector_recv(internal, oid, integer) RETURNS vector
 
 CREATE FUNCTION vector_send(vector) RETURNS bytea
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+	
 
 CREATE TYPE vector (
 	INPUT     = vector_in,
@@ -247,7 +248,6 @@ BEGIN
   RETURN 1;
 END
 $func$;
-
 
 create or replace function create_global_index(TEXT,TEXT,TEXT,INT,INT,FLOAT4) RETURNS BOOLEAN as 
 $fn$

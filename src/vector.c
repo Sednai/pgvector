@@ -484,7 +484,6 @@ vector_to_float8(PG_FUNCTION_ARGS)
 	for (i = 0; i < vec->dim; i++)
 		d[i] = Float8GetDatum((double) vec->x[i]);
 
-	/* Use TYPALIGN_INT for float4 */
 	result = construct_array(d, vec->dim, FLOAT8OID, sizeof(float8), true, 'd');
 
 	PG_RETURN_POINTER(result);
