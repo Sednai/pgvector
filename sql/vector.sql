@@ -243,7 +243,7 @@ DECLARE
 		tab ALIAS for $2;
 BEGIN
    FOREACH tmp SLICE 1 IN ARRAY $1 LOOP
-   		 EXECUTE format('INSERT INTO %I values($1)',tab) USING tmp;
+   		 EXECUTE format('INSERT INTO %s values($1)',tab) USING tmp;
    END LOOP;
   RETURN 1;
 END
