@@ -590,10 +590,11 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 	
 		if(strlen(centroidscol) > 0 && strcmp(centroidscol,"none") != 0) {
 			
-			char* centroidsschema = NULL;
+			char* centroidsschema = IvfflatGetCentroidsSchema(index);
 	
-			if(strlen(centroidsschema) > 0 && strcmp(centroidsschema,"none") != 0) 
-				centroidsschema = IvfflatGetCentroidsSchema(index);
+			if(strlen(centroidsschema) > 0 && strcmp(centroidsschema,"none") == 0) {
+				centroidsschema = NULL;
+			}
 
 			getCentroidsFromTable(centroidsschema,centroidstable,centroidscol,buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers);
 			
@@ -603,7 +604,7 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 
 	} else {	
 		char* centroids = IvfflatGetCentroids(index);
-		elog(WARNING,"[DEBUG]: manually supplied Centroids -> %s | # lists: %d",centroids,buildstate->centers->maxlen);
+		//elog(WARNING,"[DEBUG]: manually supplied Centroids -> %s | # lists: %d",centroids,buildstate->centers->maxlen);
 	
 		// Convert text to VectorArray
 		vectorarray_in(centroids, buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers); 
@@ -615,8 +616,8 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 	} else {
 		VectorArray	result = VectorArrayGet(buildstate->centers,19);
 		
-		PrintVector("DEBUG:", result);
-		elog(WARNING,"DEBUG: # centroids in VA: %d",buildstate->centers->length);
+		//PrintVector("DEBUG:", result);
+		//elog(WARNING,"DEBUG: # centroids in VA: %d",buildstate->centers->length);
 	}
 #else
 		ComputeCenters(buildstate);
