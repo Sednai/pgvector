@@ -589,7 +589,14 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 		char* centroidscol = IvfflatGetCentroidsCol(index);
 	
 		if(strlen(centroidscol) > 0 && strcmp(centroidscol,"none") != 0) {
-			getCentroidsFromTable(centroidstable,centroidscol,buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers);
+			
+			char* centroidsschema = NULL;
+	
+			if(strlen(centroidsschema) > 0 && strcmp(centroidsschema,"none") != 0) 
+				centroidsschema = IvfflatGetCentroidsSchema(index);
+
+			getCentroidsFromTable(centroidsschema,centroidstable,centroidscol,buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers);
+			
 		} else {
 			elog(ERROR,"No column name supplied for table %s",centroidstable);
 		}
