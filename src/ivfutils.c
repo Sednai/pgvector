@@ -341,15 +341,30 @@ void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N,
 	if(table_found) {
 		// 2. Query for centroids
 		
+		int tablen;
+		if(schemaname != NULL) {
+			tablen = strlen(tabname)+strlen(schemaname)+1;
+		}
+		else {
+			tablen = strlen(tabname);
+		}
+		char tabn[tablen];
+		strcpy(tabn,tabname);
+		strcat(tabn,".");
+
+		if(schemaname != NULL) {
+			strcpy(tabn,schemaname);
+		}
+
 		char* query_cmd_2_1 = "select ";
 		char* query_cmd_2_2 = " from ";
 		
-		char query2[strlen(query_cmd_2_1)+strlen(query_cmd_2_2)+strlen(tabname)+strlen(colname)];
+		char query2[strlen(query_cmd_2_1)+strlen(query_cmd_2_2)+strlen(tabn)+strlen(colname)];
 	
 		strcpy(query2,query_cmd_2_1);
 		strcat(query2,colname);
 		strcat(query2,query_cmd_2_2);
-		strcat(query2,tabname);
+		strcat(query2,tabn);
 
 		plan = SPI_prepare_cursor(query2, 0, NULL, 0);
 		prtl = SPI_cursor_open(NULL, plan, NULL, NULL, true);
@@ -418,10 +433,10 @@ void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N,
 	} else {
 		SPI_finish();
 		if(schemaname!=NULL) {
-			elog(ERROR,"Centroid table %s in schema %s with column %s no found", tabname, schemaname, colname);
+			elog(ERROR,"Centroid table %s in schema %s with column %s not found", tabname, schemaname, colname);
 		}
 		else
-			elog(ERROR,"Centroid table %s with column %s no found", tabname, colname);
+			elog(ERROR,"Centroid table %s with column %s not found", tabname, colname);
 		
 	}
 
