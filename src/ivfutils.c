@@ -314,7 +314,7 @@ void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N,
 		strcat(query,"')");		
 	}
 
-	elog(WARNING,"[DEBUG](query): %s",query);
+	//elog(WARNING,"[DEBUG](query): %s",query);
 
 	// 1. Check if table exists
   	SPIPlanPtr plan = SPI_prepare_cursor(query, 0, NULL, 0);
