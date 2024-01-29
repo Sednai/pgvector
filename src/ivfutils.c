@@ -349,13 +349,14 @@ void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N,
 			tablen = strlen(tabname);
 		}
 		char tabn[tablen];
-		strcpy(tabn,tabname);
-		
 		if(schemaname != NULL) {
+			strcpy(tabn,tabname);
 			strcat(tabn,".");
 			strcat(tabn,schemaname);
-		}
-
+		} else 
+			strcpy(tabn,tabname);
+			
+	
 		char* query_cmd_2_1 = "select ";
 		char* query_cmd_2_2 = " from ";
 		
