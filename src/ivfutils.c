@@ -91,7 +91,24 @@ IvfflatGetCentroidsCol(Relation index)
 	
 	return IVFFLAT_DEFAULT_CENTROIDSCOL;
 }
+
+/*
+ * Get supplied centroid schema
+ */
+char*
+IvfflatGetCentroidsSchema(Relation index)
+{
+	IvfflatOptions *opts = (IvfflatOptions *) index->rd_options;
+
+	if (opts)
+		return (char *) opts + opts->centroidsSchemaOffset;
+	
+	return IVFFLAT_DEFAULT_CENTROIDSSCHEMA;
+}
+
 #endif
+
+
 
 
 /*
@@ -264,21 +281,32 @@ IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo,
 }
 
 #ifdef XZ
-void getCentroidsFromTable(char* tabname, char* colname,int N, int dim, VectorArray centroids) {
+void getCentroidsFromTable(char* schemaname,char* tabname, char* colname,int N, int dim, VectorArray centroids) {
 
 	// SPI connect to server
     SPI_connect();
     
 	char* query_cmd_1 = "select exists (select 1 from information_schema.columns where table_name='";
 	char* query_cmd_2 = "' and column_name='";
-
-	char query[strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(tabname)+strlen(colname)+1];
-	strcpy(query,query_cmd_1);
-	strcat(query,tabname);
-	strcat(query,query_cmd_2);
-	strcat(query,colname);
-	strcat(query,"')");
+	char* query_cmd_3 = "' and table_schema='";
+	char query[strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(query_cmd_3)+strlen(tabname)+strlen(colname)+strlen(schemaname)+1];
 	
+	if(schemaname == NULL) {
+		strcpy(query,query_cmd_1);
+		strcat(query,tabname);
+		strcat(query,query_cmd_2);
+		strcat(query,colname);
+		strcat(query,"')");
+	} else {
+		strcpy(query,query_cmd_1);
+		strcat(query,tabname);
+		strcat(query,query_cmd_2);
+		strcat(query,colname);
+		strcat(query,query_cmd_3);
+		strcat(query,schemaname);
+		strcat(query,"')");		
+	}
+
 	// 1. Check if table exists
   	SPIPlanPtr plan = SPI_prepare_cursor(query, 0, NULL, 0);
             
@@ -318,7 +346,6 @@ void getCentroidsFromTable(char* tabname, char* colname,int N, int dim, VectorAr
 		prtl = SPI_cursor_open(NULL, plan, NULL, NULL, true);
 
 		SPI_cursor_fetch(prtl, true, N);
-		bool table_found = false;
 		bool isnull = false;
 		bool sizemismatch = false;
 		bool typemismatch = false;

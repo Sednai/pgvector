@@ -173,6 +173,8 @@ ivfflatoptions(Datum reloptions, bool validate)
 		{"centroids",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsOffset)},
 		{"centroids_table",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsTableOffset)},
 		{"centroids_col",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsColOffset)},	
+		{"centroids_schema",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsSchemaOffset)},	
+		
 #endif
 	};
 

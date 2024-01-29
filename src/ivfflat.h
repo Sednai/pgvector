@@ -39,6 +39,7 @@
 #define IVFFLAT_DEFAULT_CENTROIDS	"{}"
 #define IVFFLAT_DEFAULT_CENTROIDSTABLE	"none"
 #define IVFFLAT_DEFAULT_CENTROIDSCOL	"none"
+#define IVFFLAT_DEFAULT_CENTROIDSSCHEMA	"none"
 
 #endif
 
@@ -100,6 +101,8 @@ typedef struct IvfflatOptions
 	int			centroidsOffset;/* centroids */
 	int			centroidsTableOffset; /* centroid table */
 	int			centroidsColOffset; /* centroid column */
+	int			centroidsSchemaOffset; /* centroid column */
+	
 }			IvfflatOptions;
 
 typedef struct IvfflatBuildState
@@ -222,6 +225,8 @@ int			IvfflatGetLists(Relation index);
 char*		IvfflatGetCentroids(Relation index);
 char*		IvfflatGetCentroidsTable(Relation index);
 char*		IvfflatGetCentroidsCol(Relation index);
+char*		IvfflatGetCentroidsSchema(Relation index);
+
 #endif
 void		IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo, BlockNumber insertPage, BlockNumber originalInsertPage, BlockNumber startPage, ForkNumber forkNum);
 void		IvfflatCommitBuffer(Buffer buf, GenericXLogState *state);
