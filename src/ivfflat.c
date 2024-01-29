@@ -32,8 +32,10 @@ _PG_init(void)
 
 #ifdef XZ
 	add_string_reloption(ivfflat_relopt_kind, "centroids", "2d matrix of centroids (1d encoded)", "{}", NULL);
-	add_string_reloption(ivfflat_relopt_kind, "centroids_table", "Table with one centroid per row", "", NULL);
-	add_string_reloption(ivfflat_relopt_kind, "centroids_col", "Column name for centroids", "", NULL);
+	add_string_reloption(ivfflat_relopt_kind, "centroids_table", "Table with one centroid per row", "none", NULL);
+	add_string_reloption(ivfflat_relopt_kind, "centroids_col", "Column name for centroids", "none", NULL);
+	add_string_reloption(ivfflat_relopt_kind, "centroids_schema", "Schema of centroids table", "none", NULL);
+	
 #endif
 
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",

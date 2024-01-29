@@ -281,7 +281,7 @@ IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo,
 }
 
 #ifdef XZ
-void getCentroidsFromTable(char* schemaname,char* tabname, char* colname,int N, int dim, VectorArray centroids) {
+void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N, int dim, VectorArray centroids) {
 
 	// SPI connect to server
     SPI_connect();
@@ -289,7 +289,14 @@ void getCentroidsFromTable(char* schemaname,char* tabname, char* colname,int N, 
 	char* query_cmd_1 = "select exists (select 1 from information_schema.columns where table_name='";
 	char* query_cmd_2 = "' and column_name='";
 	char* query_cmd_3 = "' and table_schema='";
-	char query[strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(query_cmd_3)+strlen(tabname)+strlen(colname)+strlen(schemaname)+1];
+	int len;
+	
+	if(schemaname == NULL)
+		len = strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(tabname)+strlen(colname)+1;
+	else
+		len = strlen(query_cmd_1)+strlen(query_cmd_2)+strlen(query_cmd_3)+strlen(tabname)+strlen(colname)+strlen(schemaname)+1;
+
+	char query[len];
 	
 	if(schemaname == NULL) {
 		strcpy(query,query_cmd_1);
@@ -306,6 +313,8 @@ void getCentroidsFromTable(char* schemaname,char* tabname, char* colname,int N, 
 		strcat(query,schemaname);
 		strcat(query,"')");		
 	}
+
+	elog(WARNING,"[DEBUG](query): %s",query);
 
 	// 1. Check if table exists
   	SPIPlanPtr plan = SPI_prepare_cursor(query, 0, NULL, 0);
@@ -408,8 +417,12 @@ void getCentroidsFromTable(char* schemaname,char* tabname, char* colname,int N, 
 
 	} else {
 		SPI_finish();
-
-		elog(ERROR,"Centroid table %s with column %s no found", tabname, colname);
+		if(schemaname!=NULL) {
+			elog(ERROR,"Centroid table %s in schema %s with column %s no found", tabname, schemaname, colname);
+		}
+		else
+			elog(ERROR,"Centroid table %s with column %s no found", tabname, colname);
+		
 	}
 
 	if(centroids->length!=N) {
