@@ -208,6 +208,17 @@ typedef struct IvfflatScanOpaqueData
 
 typedef IvfflatScanOpaqueData * IvfflatScanOpaque;
 
+typedef struct IvfflatScanParallelData
+{
+	int			   next;        /* Last visited queue */
+    slock_t        lock;        /* protects above variables */
+}            IvfflatScanParallelData;
+
+typedef struct IvfflatScanParallelData *IvfflatScanParallel;
+
+
+
+
 #define VECTOR_ARRAY_SIZE(_length, _dim) (offsetof(VectorArrayData, items) + _length * VECTOR_SIZE(_dim))
 #define VECTOR_ARRAY_OFFSET(_arr, _offset) ((char*) _arr + offsetof(VectorArrayData, items) + (_offset) * VECTOR_SIZE(_arr->dim))
 #define VectorArrayGet(_arr, _offset) ((Vector *) VECTOR_ARRAY_OFFSET(_arr, _offset))
@@ -252,5 +263,11 @@ IndexScanDesc ivfflatbeginscan(Relation index, int nkeys, int norderbys);
 void		ivfflatrescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys, int norderbys);
 bool		ivfflatgettuple(IndexScanDesc scan, ScanDirection dir);
 void		ivfflatendscan(IndexScanDesc scan);
+#ifdef XZ
+Size		ivffestimateparallelscan(void);
+void		ivffinitparallelscan(void *target);
+void 		ivffparallelrescan(IndexScanDesc scan);
+#endif
+
 
 #endif

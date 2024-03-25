@@ -119,6 +119,9 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	 * the generic cost estimator to determine the number of pages to visit
 	 * during the index scan.
 	 */
+#ifdef XZ
+	elog(WARNING,"[DEBUG](ivfflatcostestimate): rel->tuples: %f | ratio: %f", path->indexinfo->rel->tuples,ratio);
+#endif
 	costs.numIndexTuples = path->indexinfo->rel->tuples * ratio;
 
 
@@ -128,7 +131,12 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	qinfos = deconstruct_indexquals(path);
 	genericcostestimate(root, path, loop_count, qinfos, &costs);
 #endif
-	
+
+#ifdef XZ
+	elog(WARNING,"[DEBUG](ivfflatcostestimate):numIndexTuples: %f | numIndexPages: %f",costs.numIndexTuples,costs.numIndexPages);
+#endif
+
+
 	startupCost = costs.indexTotalCost;
 
 /* Adjust cost if needed since TOAST not included in seq scan cost */
@@ -236,7 +244,11 @@ ivfflathandler(PG_FUNCTION_ARGS)
 	amroutine->amclusterable = false;
 	amroutine->ampredlocks = false;
 #if PG_VERSION_NUM >= 100000
+#ifdef XZ
+	amroutine->amcanparallel = true;
+#else
 	amroutine->amcanparallel = false;
+#endif
 #endif
 #if PG_VERSION_NUM >= 110000
 	amroutine->amcaninclude = false;
@@ -274,9 +286,16 @@ ivfflathandler(PG_FUNCTION_ARGS)
 
 	/* Interface functions to support parallel index scans */
 #if PG_VERSION_NUM >= 100000
+#ifndef XZ
 	amroutine->amestimateparallelscan = NULL;
 	amroutine->aminitparallelscan = NULL;
 	amroutine->amparallelrescan = NULL;
+#else
+	amroutine->amestimateparallelscan = ivffestimateparallelscan;
+	amroutine->aminitparallelscan = ivffinitparallelscan;
+	amroutine->amparallelrescan = ivffparallelrescan;
+#endif
+
 #endif
 
 	PG_RETURN_POINTER(amroutine);

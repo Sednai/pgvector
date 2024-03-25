@@ -128,11 +128,32 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	 * See postgres/src/backend/storage/buffer/README for description
 	 */
 	BufferAccessStrategy bas = GetAccessStrategy(BAS_BULKREAD);
-
+#ifdef XZ
+	int c = 0;
+	ParallelIndexScanDesc parallel_scan = scan->parallel_scan;
+	IvfflatScanParallel ivff_target;
+	if(scan->parallel_scan)
+		ivff_target = (IvfflatScanParallel) OffsetToPointer((void *) parallel_scan,parallel_scan->ps_offset);
+#endif
 	/* Search closest probes lists */
 	while (!pairingheap_is_empty(so->listQueue))
 	{
 		searchPage = ((IvfflatScanList *) pairingheap_remove_first(so->listQueue))->startPage;
+
+#ifdef XZ
+		if(scan->parallel_scan) {
+			// Sync if already visited
+			SpinLockAcquire(&ivff_target->lock);
+			if( c < ivff_target->next) {
+			    SpinLockRelease(&ivff_target->lock);			
+				c++;
+				continue;
+			}
+			ivff_target->next++;
+			c++;
+		    SpinLockRelease(&ivff_target->lock);
+		}
+#endif
 
 		/* Search all entry pages for list */
 		while (BlockNumberIsValid(searchPage))
@@ -169,6 +190,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 
 			UnlockReleaseBuffer(buf);
 		}
+
 	}
 
 	tuplesort_performsort(so->sortstate);
@@ -353,3 +375,46 @@ ivfflatendscan(IndexScanDesc scan)
 	pfree(so);
 	scan->opaque = NULL;
 }
+
+
+#ifdef XZ
+/*
+ * Estimate storage
+*/
+Size
+ivffestimateparallelscan(void)
+{
+	//elog(WARNING,"[DEBUG](ivffestimateparallelscan)");
+	return sizeof(IvfflatScanParallelData);
+}
+
+/*
+*	initialize parallel scan
+*/
+void
+ivffinitparallelscan(void *target)
+{
+	elog(WARNING,"[DEBUG](ivffinitparallelscan)");
+	
+    IvfflatScanParallel ivff_target = (IvfflatScanParallel) target;
+
+    SpinLockInit(&ivff_target->lock);
+}
+
+/*
+ *    reset parallel scan
+ */
+void
+ivffparallelrescan(IndexScanDesc scan)
+{
+    ParallelIndexScanDesc parallel_scan = scan->parallel_scan;
+
+    Assert(parallel_scan);
+	IvfflatScanParallel ivff_target = (IvfflatScanParallel) OffsetToPointer((void *) parallel_scan,parallel_scan->ps_offset);
+
+    SpinLockAcquire(&ivff_target->lock);
+	ivff_target->next = 0;
+	SpinLockRelease(&ivff_target->lock);
+}
+
+#endif
