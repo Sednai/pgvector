@@ -119,8 +119,8 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	 * the generic cost estimator to determine the number of pages to visit
 	 * during the index scan.
 	 */
-#ifdef XZ
-	elog(WARNING,"[DEBUG](ivfflatcostestimate): rel->tuples: %f | ratio: %f", path->indexinfo->rel->tuples,ratio);
+#ifdef XZ_DEBUG
+	//elog(WARNING,"[DEBUG](ivfflatcostestimate): rel->tuples: %f | ratio: %f", path->indexinfo->rel->tuples,ratio);
 #endif
 	costs.numIndexTuples = path->indexinfo->rel->tuples * ratio;
 
@@ -132,8 +132,8 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	genericcostestimate(root, path, loop_count, qinfos, &costs);
 #endif
 
-#ifdef XZ
-	elog(WARNING,"[DEBUG](ivfflatcostestimate):numIndexTuples: %f | numIndexPages: %f",costs.numIndexTuples,costs.numIndexPages);
+#ifdef XZ_DEBUG
+	//elog(WARNING,"[DEBUG](ivfflatcostestimate):numIndexTuples: %f | numIndexPages: %f",costs.numIndexTuples,costs.numIndexPages);
 #endif
 
 
