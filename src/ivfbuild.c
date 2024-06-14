@@ -42,6 +42,10 @@
 #define UpdateProgress(index, val) ((void)val)
 #endif
 
+#ifdef XZ
+#define RandomDouble() (((double) random()) / MAX_RANDOM_VALUE)
+#endif
+
 /*
  * Callback for sampling
  */
@@ -577,7 +581,25 @@ BuildIndex(Relation heap, Relation index, IndexInfo *indexInfo,
 {
 	InitBuildState(buildstate, heap, index, indexInfo);
 
-	ComputeCenters(buildstate);
+#ifdef XZ
+	char* centroids = IvfflatGetCentroids(index);
+
+	elog(WARNING,"[DEBUG]: supplied Centroids -> %s | # lists: %d",centroids,buildstate->centers->maxlen);
+
+	// Convert text to VectorArray
+	vectorarray_in(centroids, buildstate->centers->maxlen, buildstate->dimensions, buildstate->centers); 
+
+	if(buildstate->centers->length == 0) {
+		ComputeCenters(buildstate);
+	} else {
+		VectorArray	result = VectorArrayGet(buildstate->centers,0);
+		
+		PrintVector("DEBUG final:", result);
+		elog(WARNING,"DEBUG: # centroids in VA: %d",buildstate->centers->length);
+	}
+#else
+		ComputeCenters(buildstate);
+#endif
 
 	/* Create pages */
 	CreateMetaPage(index, buildstate->dimensions, buildstate->lists, forkNum);

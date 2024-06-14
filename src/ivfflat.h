@@ -35,6 +35,8 @@
 #define IVFFLAT_DEFAULT_LISTS	100
 #define IVFFLAT_MAX_LISTS		32768
 
+#define IVFFLAT_DEFAULT_CENTROIDS	'{}'
+
 /* Build phases */
 /* PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE is 1 */
 #define PROGRESS_IVFFLAT_PHASE_SAMPLE	2
@@ -65,6 +67,8 @@
 /* Variables */
 extern int	ivfflat_probes;
 
+
+#ifndef XZ
 typedef struct VectorArrayData
 {
 	int			length;
@@ -74,7 +78,8 @@ typedef struct VectorArrayData
 }			VectorArrayData;
 
 typedef VectorArrayData * VectorArray;
-
+#else
+#endif
 typedef struct ListInfo
 {
 	BlockNumber blkno;
@@ -86,6 +91,7 @@ typedef struct IvfflatOptions
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int			lists;			/* number of lists */
+	int			centroidsOffset;/* centroids */
 }			IvfflatOptions;
 
 typedef struct IvfflatBuildState
@@ -204,6 +210,9 @@ void		IvfflatKmeans(Relation index, VectorArray samples, VectorArray centers);
 FmgrInfo   *IvfflatOptionalProcInfo(Relation rel, uint16 procnum);
 bool		IvfflatNormValue(FmgrInfo *procinfo, Oid collation, Datum *value, Vector * result);
 int			IvfflatGetLists(Relation index);
+#ifdef XZ
+char*		IvfflatGetCentroids(Relation index);
+#endif
 void		IvfflatUpdateList(Relation index, GenericXLogState *state, ListInfo listInfo, BlockNumber insertPage, BlockNumber originalInsertPage, BlockNumber startPage, ForkNumber forkNum);
 void		IvfflatCommitBuffer(Buffer buf, GenericXLogState *state);
 void		IvfflatAppendPage(Relation index, Buffer *buf, Page *page, GenericXLogState **state, ForkNumber forkNum);

@@ -3,6 +3,7 @@
 
 #include "postgres.h"
 
+
 #define VECTOR_MAX_DIM 1024
 
 #define VECTOR_SIZE(_dim)		(offsetof(Vector, x) + sizeof(float)*(_dim))
@@ -21,6 +22,19 @@ typedef struct Vector
 void		PrintVector(char *msg, Vector * vector);
 int			vector_cmp_internal(Vector * a, Vector * b);
 
+#ifdef XZ
+typedef struct VectorArrayData
+{
+	int			length;
+	int			maxlen;
+	int			dim;
+	Vector		items[FLEXIBLE_ARRAY_MEMBER];
+}			VectorArrayData;
+
+typedef VectorArrayData * VectorArray;
+#endif
+
+
 /*
  * Allocate and initialize a new vector
  */
@@ -37,5 +51,9 @@ InitVector(int dim)
 
 	return result;
 }
+
+#ifdef XZ
+int vectorarray_in(char* str, int N, int dim, VectorArray centroids);
+#endif
 
 #endif

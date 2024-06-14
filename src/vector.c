@@ -12,6 +12,10 @@
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
 
+#ifdef XZ
+#include "ivfflat.h"
+#endif
+
 #if PG_VERSION_NUM >= 120000
 #include "utils/float.h"
 #endif
@@ -99,8 +103,11 @@ PrintVector(char *msg, Vector * vector)
 		appendStringInfoString(&buf, float8out_internal(vector->x[i]));
 	}
 	appendStringInfoChar(&buf, ']');
-
+#ifndef XZ
 	elog(INFO, "%s = %s", msg, buf.data);
+#else
+	elog(WARNING, "%s = %s", msg, buf.data);
+#endif
 }
 
 /*
@@ -178,6 +185,79 @@ vector_in(PG_FUNCTION_ARGS)
 
 	PG_RETURN_POINTER(result);
 }
+
+#ifdef XZ
+/*
+	Convert 2d string array to VectorArray
+*/
+int vectorarray_in(char* str, int N, int dim, VectorArray centroids) 
+{
+	char	   *pt;
+	char	   *stringEnd;
+	int			i;
+
+	// Check
+	if (*str != '{')
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				 errmsg("malformed vectorarray literal: \"%s\"", str),
+				 errdetail("Array contents must start with \"{\".")));
+	str++;
+
+	pt = strtok(str, ",");
+	stringEnd = pt;
+
+	int r = 0;
+	int c = 0;
+	double		x[dim];
+	
+	while (pt != NULL && *stringEnd != '}')
+	{
+	
+		strtod(pt, &stringEnd);
+		x[c] = strtod(pt, &stringEnd);
+		CheckElement(x[c]);
+				
+		if (stringEnd == pt)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+					 errmsg("invalid input syntax for type vector: \"%s\"", pt)));
+
+		if (*stringEnd != '\0' && *stringEnd != '}')
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+					 errmsg("invalid input syntax for type vector: \"%s\"", pt)));
+
+		c++;
+
+		if(c == dim) {
+			// Vector complete
+			Vector *result = InitVector(dim);
+			for (i = 0; i < dim; i++)
+				result->x[i] = x[i];
+
+			PrintVector("DEBUG internal:", result);
+
+			VectorArraySet(centroids, r, result);
+			centroids->length++;
+			r++;
+
+			if (r > centroids->maxlen)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_EXCEPTION),
+						errmsg("Too many centroids. Max expected %d", centroids->maxlen)));
+
+			c = 0;		
+		}
+		pt = strtok(NULL, ",");
+	}
+	
+	if (r != N)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_EXCEPTION),
+					 errmsg("Expected %d centroids but found %d", N,r)));
+}
+#endif
 
 /*
  * Convert internal representation to textual representation
@@ -385,6 +465,32 @@ vector_to_float4(PG_FUNCTION_ARGS)
 
 	PG_RETURN_POINTER(result);
 }
+
+#ifdef XZ
+/*
+ * Convert vector to float8[]
+ */
+PG_FUNCTION_INFO_V1(vector_to_float8);
+Datum
+vector_to_float8(PG_FUNCTION_ARGS)
+{
+	Vector	   *vec = PG_GETARG_VECTOR_P(0);
+	Datum	   *d;
+	ArrayType  *result;
+	int			i;
+
+	d = (Datum *) palloc(sizeof(Datum) * vec->dim);
+
+	for (i = 0; i < vec->dim; i++)
+		d[i] = Float8GetDatum((double) vec->x[i]);
+
+	/* Use TYPALIGN_INT for float4 */
+	result = construct_array(d, vec->dim, FLOAT8OID, sizeof(float8), true, 'd');
+
+	PG_RETURN_POINTER(result);
+}
+#endif
+
 
 /*
  * Get the L2 distance between vectors

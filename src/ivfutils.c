@@ -44,6 +44,23 @@ IvfflatGetLists(Relation index)
 	return IVFFLAT_DEFAULT_LISTS;
 }
 
+#ifdef XZ
+/*
+ * Get supplied centroids
+ */
+char*
+IvfflatGetCentroids(Relation index)
+{
+	IvfflatOptions *opts = (IvfflatOptions *) index->rd_options;
+
+	if (opts)
+		return (char *) opts + opts->centroidsOffset;
+	
+	return IVFFLAT_DEFAULT_CENTROIDS;
+}
+#endif
+
+
 /*
  * Get proc
  */

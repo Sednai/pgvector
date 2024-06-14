@@ -7,6 +7,7 @@
 #include "ivfflat.h"
 #include "utils/guc.h"
 #include "utils/selfuncs.h"
+#include "utils/spccache.h"
 
 #if PG_VERSION_NUM >= 120000
 #include "commands/progress.h"
@@ -28,6 +29,11 @@ _PG_init(void)
 					  ,AccessExclusiveLock
 #endif
 		);
+
+#ifdef XZ
+	add_string_reloption(ivfflat_relopt_kind, "centroids", "2d matrix of centroids (1d encoded)", "{}", NULL);
+	
+#endif
 
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",
 							"Valid range is 1..lists.", &ivfflat_probes,
@@ -74,7 +80,9 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	GenericCosts costs;
 	int			lists;
 	double		ratio;
+	double		spc_seq_page_cost;
 	Relation	indexRel;
+	Cost		startupCost;
 #if PG_VERSION_NUM < 120000
 	List	   *qinfos;
 #endif
@@ -94,25 +102,56 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 
 	MemSet(&costs, 0, sizeof(costs));
 
+	indexRel = index_open(path->indexinfo->indexoid, NoLock);
+	lists = IvfflatGetLists(indexRel);
+	index_close(indexRel, NoLock);
+
+	/* Get the ratio of lists that we need to visit */
+	ratio = ((double) ivfflat_probes) / lists;
+	if (ratio > 1.0)
+		ratio = 1.0;
+
+	/*
+	 * This gives us the subset of tuples to visit. This value is passed into
+	 * the generic cost estimator to determine the number of pages to visit
+	 * during the index scan.
+	 */
+	costs.numIndexTuples = path->indexinfo->rel->tuples * ratio;
+
+
 #if PG_VERSION_NUM >= 120000
 	genericcostestimate(root, path, loop_count, &costs);
 #else
 	qinfos = deconstruct_indexquals(path);
 	genericcostestimate(root, path, loop_count, qinfos, &costs);
 #endif
+	
+	startupCost = costs.indexTotalCost;
 
-	indexRel = index_open(path->indexinfo->indexoid, NoLock);
-	lists = IvfflatGetLists(indexRel);
-	index_close(indexRel, NoLock);
-
-	ratio = ((double) ivfflat_probes) / lists;
-	if (ratio > 1)
+/* Adjust cost if needed since TOAST not included in seq scan cost */
+	if (costs.numIndexPages > path->indexinfo->rel->pages && ratio < 0.5)
 		ratio = 1;
+	{
+		get_tablespace_page_costs(path->indexinfo->reltablespace, NULL, &spc_seq_page_cost);
 
-	costs.indexTotalCost *= ratio;
+		/* Change page cost from random to sequential */
+		startupCost -= costs.numIndexPages * (costs.spc_random_page_cost - spc_seq_page_cost);
+
+		/* Remove cost of extra pages */
+		startupCost -= (costs.numIndexPages - path->indexinfo->rel->pages) * spc_seq_page_cost;
+	}
+
+	/*
+	 * If the list selectivity is lower than what is returned from the generic
+	 * cost estimator, use that.
+	 */
+	if (ratio < costs.indexSelectivity)
+		costs.indexSelectivity = ratio;
+
 
 	/* Startup cost and total cost are same */
-	*indexStartupCost = costs.indexTotalCost;
+	*indexStartupCost = startupCost;
+	
 	*indexTotalCost = costs.indexTotalCost;
 	*indexSelectivity = costs.indexSelectivity;
 	*indexCorrelation = costs.indexCorrelation;
@@ -129,6 +168,9 @@ ivfflatoptions(Datum reloptions, bool validate)
 {
 	static const relopt_parse_elt tab[] = {
 		{"lists", RELOPT_TYPE_INT, offsetof(IvfflatOptions, lists)},
+#ifdef XZ
+		{"centroids",RELOPT_TYPE_STRING, offsetof(IvfflatOptions, centroidsOffset)},
+#endif
 	};
 
 #if PG_VERSION_NUM >= 130000
@@ -140,12 +182,12 @@ ivfflatoptions(Datum reloptions, bool validate)
 	relopt_value *options;
 	int			numoptions;
 	IvfflatOptions *rdopts;
-
+	
 	options = parseRelOptions(reloptions, validate, ivfflat_relopt_kind, &numoptions);
 	rdopts = allocateReloptStruct(sizeof(IvfflatOptions), options, numoptions);
 	fillRelOptions((void *) rdopts, sizeof(IvfflatOptions), options, numoptions,
 				   validate, tab, lengthof(tab));
-
+	
 	return (bytea *) rdopts;
 #endif
 }

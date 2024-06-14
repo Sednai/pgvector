@@ -103,6 +103,9 @@ CREATE FUNCTION array_to_vector(numeric[], integer, boolean) RETURNS vector
 CREATE FUNCTION vector_to_float4(vector, integer, boolean) RETURNS real[]
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+CREATE FUNCTION vector_to_float8(vector, integer, boolean) RETURNS float8[]
+	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
 -- casts
 
 CREATE CAST (vector AS vector)
@@ -228,3 +231,14 @@ CREATE OPERATOR CLASS vector_cosine_ops
 	FUNCTION 2 vector_norm(vector),
 	FUNCTION 3 vector_spherical_distance(vector, vector),
 	FUNCTION 4 vector_norm(vector);
+
+create function create_global_index(TEXT,TEXT,TEXT,INT,INT,FLOAT4) RETURNS BOOLEAN as 
+$fn$
+    DECLARE
+        cents text;
+    BEGIN
+        cents = (select '''{'||array_to_string(C,',')||'}''' from (select kmeans($2,$3,$4,$5,$6,False,0,False) as C) as ctext);
+        EXECUTE FORMAT('CREATE INDEX ON %s USING ivfflat (%s vector_l2_ops) WITH (lists = %s, centroids=%s)',$1,$3,$4,cents);
+        RETURN 1;
+    END;
+$fn$ language 'plpgsql';
