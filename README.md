@@ -1,3 +1,13 @@
+# Modification
+
+This version of pgvector has been modified so that centroids for IVFFLAT can be externally supplied.
+
+Example for index creation with centroids taken from column `centroids_colname` (of type `real[]`) of first `Nc` rows of table `centroids_tabname`:
+
+```sql
+CREATE INDEX ON tabname USING ivfflat (colname vector_l2_ops) WITH (lists = Nc,centroids_table='centroids_tabname',centroids_col='centroids_colname');
+```
+
 # pgvector
 
 Open-source vector similarity search for Postgres
