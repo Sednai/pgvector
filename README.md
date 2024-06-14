@@ -2,10 +2,10 @@
 
 This version of pgvector has been modified so that centroids for IVFFLAT can be externally supplied.
 
-Example for index creation with centroids taken from column `centroids_colname` (of type `real[]`) of first `Nc` rows of table `centroids_tabname`:
+Example for index creation with centroids taken from column `centroids_colname` (of type `real[]`) of first `Nc` rows of table `centroids_tabname` in schema `centroids_schemaname`:
 
 ```sql
-CREATE INDEX ON tabname USING ivfflat (colname vector_l2_ops) WITH (lists = Nc,centroids_table='centroids_tabname',centroids_col='centroids_colname');
+CREATE INDEX ON tabname USING ivfflat (colname vector_l2_ops) WITH (lists = Nc,centroids_table='centroids_tabname',centroids_col='centroids_colname',centroids_schema='centroids_schemaname');
 ```
 
 # pgvector
