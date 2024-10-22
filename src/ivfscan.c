@@ -15,6 +15,9 @@
 #include "catalog/pg_type.h"
 #endif
 
+#ifdef XZ
+#include "ivfgpu.h"
+#endif
 /*
  * Compare list distances
  */
@@ -128,6 +131,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	 * See postgres/src/backend/storage/buffer/README for description
 	 */
 	BufferAccessStrategy bas = GetAccessStrategy(BAS_BULKREAD);
+
 #ifdef XZ
 	int c = 0;
 	ParallelIndexScanDesc parallel_scan = scan->parallel_scan;
@@ -135,6 +139,25 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	if(scan->parallel_scan)
 		ivff_target = (IvfflatScanParallel) OffsetToPointer((void *) parallel_scan,parallel_scan->ps_offset);
 #endif
+
+#ifdef XZ
+	int BATCH_SIZE = 100000;
+	Vector	   *v = PointerGetDatum(value);
+
+	float* M = (float*) init_shared_gpu_memory(v->dim*BATCH_SIZE*sizeof(float) );
+	float* V = (float*) init_shared_gpu_memory(v->dim*sizeof(float) );
+	float* C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
+	
+	memcpy(V,v->x,v->dim*sizeof(float));
+
+	TupleTableSlot *slots[BATCH_SIZE];
+
+	Datum tmp_tid[BATCH_SIZE];
+	Datum tmp_page[BATCH_SIZE];
+
+	int row = 0;
+#endif
+
 	/* Search closest probes lists */
 	while (!pairingheap_is_empty(so->listQueue))
 	{
@@ -168,6 +191,43 @@ GetScanItems(IndexScanDesc scan, Datum value)
 				itup = (IndexTuple) PageGetItem(page, PageGetItemId(page, offno));
 				datum = index_getattr(itup, 1, tupdesc, &isnull);
 
+#ifdef XZ
+				if (row == BATCH_SIZE) {
+					calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+					
+					for(int r = 0; r < row; r++) {
+						ExecClearTuple(slot);
+						slot->tts_values[0] = Float8GetDatum( C[r]);
+						slot->tts_isnull[0] = false;
+						slot->tts_values[1] = tmp_tid[r];
+						slot->tts_isnull[1] = false;
+						slot->tts_values[2] = tmp_page[r];
+						slot->tts_isnull[2] = false;
+						ExecStoreVirtualTuple(slot);
+						tuplesort_puttupleslot(so->sortstate, slot);
+					}			
+					row = 0;
+				}
+
+				Vector	   *a = PointerGetDatum(datum);
+				memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float));
+
+				tmp_tid[row] = PointerGetDatum(&itup->t_tid);
+				tmp_page[row] = Int32GetDatum((int) searchPage);
+				/*
+				
+				slots[row] =  MakeSingleTupleTableSlot(so->tupdesc); // <- ToDo: Generate only on batch init !
+				ExecClearTuple(slots[row]);
+				slots[row]->tts_isnull[0] = false;
+				slots[row]->tts_values[1] = PointerGetDatum(&itup->t_tid);
+				slots[row]->tts_isnull[1] = false;
+				slots[row]->tts_values[2] = Int32GetDatum((int) searchPage);
+				slots[row]->tts_isnull[2] = false;
+				ExecStoreVirtualTuple(slots[row]);
+				*/
+				row++;
+#else	
+
 				/*
 				 * Add virtual tuple
 				 *
@@ -184,6 +244,24 @@ GetScanItems(IndexScanDesc scan, Datum value)
 				ExecStoreVirtualTuple(slot);
 
 				tuplesort_puttupleslot(so->sortstate, slot);
+#endif
+			}
+
+			if(row > 0) {
+				elog(WARNING,"[DEBUG] # rows: %d",row);
+				calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+				for(int r = 0; r < row; r++) {
+					ExecClearTuple(slot);
+					slot->tts_values[0] = Float8GetDatum( C[r]);
+					slot->tts_isnull[0] = false;
+					slot->tts_values[1] = tmp_tid[r];
+					slot->tts_isnull[1] = false;
+					slot->tts_values[2] = tmp_page[r];
+					slot->tts_isnull[2] = false;
+					ExecStoreVirtualTuple(slot);
+					tuplesort_puttupleslot(so->sortstate, slot);
+				}
+				row = 0;			
 			}
 
 			searchPage = IvfflatPageGetOpaque(page)->nextblkno;
@@ -192,6 +270,14 @@ GetScanItems(IndexScanDesc scan, Datum value)
 		}
 
 	}
+
+#ifdef XZ
+
+
+	free_shared_gpu_memory(M);
+	free_shared_gpu_memory(V);
+	free_shared_gpu_memory(C);
+#endif
 
 	tuplesort_performsort(so->sortstate);
 }
@@ -394,11 +480,16 @@ ivffestimateparallelscan(void)
 void
 ivffinitparallelscan(void *target)
 {
+#ifdef XZ_DEBUG
 	elog(WARNING,"[DEBUG](ivffinitparallelscan)");
-	
+#endif
     IvfflatScanParallel ivff_target = (IvfflatScanParallel) target;
 
     SpinLockInit(&ivff_target->lock);
+
+	SpinLockAcquire(&ivff_target->lock);
+	ivff_target->next = 0;
+	SpinLockRelease(&ivff_target->lock);
 }
 
 /*
