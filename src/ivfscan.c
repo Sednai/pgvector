@@ -152,7 +152,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 
 	TupleTableSlot *slots[BATCH_SIZE];
 
-	Datum tmp_tid[BATCH_SIZE];
+	ItemPointerData tmp_tid[BATCH_SIZE];
 	Datum tmp_page[BATCH_SIZE];
 
 	int row = 0;
@@ -197,13 +197,18 @@ GetScanItems(IndexScanDesc scan, Datum value)
 					
 					for(int r = 0; r < row; r++) {
 						ExecClearTuple(slot);
-						slot->tts_values[0] = Float8GetDatum( C[r]);
+						slot->tts_values[0] = Float4GetDatum( C[r] );
 						slot->tts_isnull[0] = false;
-						slot->tts_values[1] = tmp_tid[r];
+						slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
 						slot->tts_isnull[1] = false;
-						slot->tts_values[2] = tmp_page[r];
+						slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
 						slot->tts_isnull[2] = false;
+						slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
+						slot->tts_isnull[3] = false;
+						slot->tts_values[4] = tmp_page[r];
+						slot->tts_isnull[4] = false;
 						ExecStoreVirtualTuple(slot);
+						
 						tuplesort_puttupleslot(so->sortstate, slot);
 					}			
 					row = 0;
@@ -212,7 +217,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 				Vector	   *a = PointerGetDatum(datum);
 				memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float));
 
-				tmp_tid[row] = PointerGetDatum(&itup->t_tid);
+				tmp_tid[row] = itup->t_tid;
 				tmp_page[row] = Int32GetDatum((int) searchPage);
 				/*
 				
@@ -247,22 +252,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #endif
 			}
 
-			if(row > 0) {
-				elog(WARNING,"[DEBUG] # rows: %d",row);
-				calc_distances_gpu_euclidean(M, V, C, row, v->dim);
-				for(int r = 0; r < row; r++) {
-					ExecClearTuple(slot);
-					slot->tts_values[0] = Float8GetDatum( C[r]);
-					slot->tts_isnull[0] = false;
-					slot->tts_values[1] = tmp_tid[r];
-					slot->tts_isnull[1] = false;
-					slot->tts_values[2] = tmp_page[r];
-					slot->tts_isnull[2] = false;
-					ExecStoreVirtualTuple(slot);
-					tuplesort_puttupleslot(so->sortstate, slot);
-				}
-				row = 0;			
-			}
+		
 
 			searchPage = IvfflatPageGetOpaque(page)->nextblkno;
 
@@ -272,7 +262,26 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	}
 
 #ifdef XZ
-
+	if(row > 0) {
+		calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+		for(int r = 0; r < row; r++) {
+			ExecClearTuple(slot);
+			slot->tts_values[0] = Float4GetDatum( C[r] );
+			slot->tts_isnull[0] = false;
+			slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
+			slot->tts_isnull[1] = false;
+			slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
+			slot->tts_isnull[2] = false;
+			slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
+			slot->tts_isnull[3] = false;
+			slot->tts_values[4] = tmp_page[r];
+			slot->tts_isnull[4] = false;
+			ExecStoreVirtualTuple(slot);
+			
+			tuplesort_puttupleslot(so->sortstate, slot);
+		}
+		row = 0;			
+	}
 
 	free_shared_gpu_memory(M);
 	free_shared_gpu_memory(V);
@@ -314,15 +323,32 @@ ivfflatbeginscan(Relation index, int nkeys, int norderbys)
 	so->collation = index->rd_indcollation[0];
 
 	/* Create tuple description for sorting */
+#ifndef XZ
+
 #if PG_VERSION_NUM >= 120000
 	so->tupdesc = CreateTemplateTupleDesc(3);
 #else
 	so->tupdesc = CreateTemplateTupleDesc(3, false);
 #endif
+
 	TupleDescInitEntry(so->tupdesc, (AttrNumber) 1, "distance", FLOAT8OID, -1, 0);
+
+#endif
+
+
+#ifdef XZ
+	so->tupdesc = CreateTemplateTupleDesc(5, false);
+
+	TupleDescInitEntry(so->tupdesc, (AttrNumber) 1, "distance", FLOAT8OID, -1, 0);
+	TupleDescInitEntry(so->tupdesc, (AttrNumber) 2, "tid_a", INT2OID, -1, 0);
+	TupleDescInitEntry(so->tupdesc, (AttrNumber) 3, "tid_b", INT2OID, -1, 0);
+	TupleDescInitEntry(so->tupdesc, (AttrNumber) 4, "tid_c", INT2OID, -1, 0);
+	TupleDescInitEntry(so->tupdesc, (AttrNumber) 5, "indexblkno", INT4OID, -1, 0);
+
+#else
 	TupleDescInitEntry(so->tupdesc, (AttrNumber) 2, "tid", TIDOID, -1, 0);
 	TupleDescInitEntry(so->tupdesc, (AttrNumber) 3, "indexblkno", INT4OID, -1, 0);
-
+#endif
 	/* Prep sort */
 #if PG_VERSION_NUM >= 110000
 	so->sortstate = tuplesort_begin_heap(so->tupdesc, 1, attNums, sortOperators, sortCollations, nullsFirstFlags, work_mem, NULL, false);
@@ -416,6 +442,17 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	if (tuplesort_gettupleslot(so->sortstate, true, so->slot, NULL))
 #endif
 	{
+#ifdef XZ
+		ItemPointerData tid;
+		tid.ip_blkid.bi_hi = DatumGetInt16(slot_getattr(so->slot, 2, &so->isnull));
+		tid.ip_blkid.bi_lo = DatumGetInt16(slot_getattr(so->slot, 3, &so->isnull));
+		tid.ip_posid = DatumGetInt16(slot_getattr(so->slot, 4, &so->isnull));
+
+		scan->xs_ctup.t_self = tid;
+
+		BlockNumber indexblkno = DatumGetInt32(slot_getattr(so->slot, 5, &so->isnull));
+
+#else
 		ItemPointer tid = (ItemPointer) DatumGetPointer(slot_getattr(so->slot, 2, &so->isnull));
 		BlockNumber indexblkno = DatumGetInt32(slot_getattr(so->slot, 3, &so->isnull));
 
@@ -425,6 +462,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		scan->xs_ctup.t_self = *tid;
 #endif
 
+#endif
 		if (BufferIsValid(so->buf))
 			ReleaseBuffer(so->buf);
 
