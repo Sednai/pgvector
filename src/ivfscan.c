@@ -141,21 +141,33 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #endif
 
 #ifdef XZ
-	int BATCH_SIZE = 100000;
-	Vector	   *v = PointerGetDatum(value);
-
-	float* M = (float*) init_shared_gpu_memory(v->dim*BATCH_SIZE*sizeof(float) );
-	float* V = (float*) init_shared_gpu_memory(v->dim*sizeof(float) );
-	float* C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
+	int BATCH_SIZE;
+	Vector	   *v; 
+	float* M;
+	float* V;
+	float* C;
 	
-	memcpy(V,v->x,v->dim*sizeof(float));
+	
+	ItemPointerData* tmp_tid; 
+	Datum* tmp_page;
+	int row;
 
-	TupleTableSlot *slots[BATCH_SIZE];
+	if(ivfflat_gpu) {
+		BATCH_SIZE = ivfflat_gpu_batchsize;
+		v = PointerGetDatum(value);
+		M = (float*) init_shared_gpu_memory(v->dim*BATCH_SIZE*sizeof(float) );
+		V = (float*) init_shared_gpu_memory(v->dim*sizeof(float) );
+		C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
+		memcpy(V,v->x,v->dim*sizeof(float));
+		advise_memory_readonly(V, v->dim*sizeof(float), 0); 
+		prefetch_gpu_memory(V, v->dim*sizeof(float), 0);
 
-	ItemPointerData tmp_tid[BATCH_SIZE];
-	Datum tmp_page[BATCH_SIZE];
+		tmp_tid = palloc(sizeof(ItemPointerData)*BATCH_SIZE); 
+		tmp_page = palloc(sizeof(Datum) * BATCH_SIZE);
 
-	int row = 0;
+		row = 0;
+	}
+
 #endif
 
 	/* Search closest probes lists */
@@ -192,45 +204,59 @@ GetScanItems(IndexScanDesc scan, Datum value)
 				datum = index_getattr(itup, 1, tupdesc, &isnull);
 
 #ifdef XZ
-				if (row == BATCH_SIZE) {
-					calc_distances_gpu_euclidean(M, V, C, row, v->dim);
-					
-					for(int r = 0; r < row; r++) {
-						ExecClearTuple(slot);
-						slot->tts_values[0] = Float4GetDatum( C[r] );
-						slot->tts_isnull[0] = false;
-						slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
-						slot->tts_isnull[1] = false;
-						slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
-						slot->tts_isnull[2] = false;
-						slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
-						slot->tts_isnull[3] = false;
-						slot->tts_values[4] = tmp_page[r];
-						slot->tts_isnull[4] = false;
-						ExecStoreVirtualTuple(slot);
+				if(ivfflat_gpu) {
+					if (row == BATCH_SIZE) {
+
+						calc_distances_gpu_euclidean(M, V, C, row, v->dim);
 						
-						tuplesort_puttupleslot(so->sortstate, slot);
-					}			
-					row = 0;
+						for(int r = 0; r < row; r++) {
+							ExecClearTuple(slot);
+							slot->tts_values[0] = Float4GetDatum( C[r] );
+							slot->tts_isnull[0] = false;
+							slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
+							slot->tts_isnull[1] = false;
+							slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
+							slot->tts_isnull[2] = false;
+							slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
+							slot->tts_isnull[3] = false;
+							slot->tts_values[4] = tmp_page[r];
+							slot->tts_isnull[4] = false;
+							ExecStoreVirtualTuple(slot);
+							
+							tuplesort_puttupleslot(so->sortstate, slot);
+						}			
+						row = 0;
+					}
+
+					Vector	   *a = PointerGetDatum(datum);
+					memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float));
+
+					tmp_tid[row] = itup->t_tid;
+					tmp_page[row] = Int32GetDatum((int) searchPage);
+					
+					row++;
+
+					if(row % 100000 == 0) {
+						prefetch_gpu_memory(&M[row-100000*v->dim*sizeof(float)], 100000*v->dim*sizeof(float), 0);
+					}
+				} else {
+						 
+					ExecClearTuple(slot);
+					slot->tts_values[0] = FunctionCall2Coll(so->procinfo, so->collation, datum, value);
+					slot->tts_isnull[0] = false;
+					slot->tts_values[1] = Int16GetDatum( itup->t_tid.ip_blkid.bi_hi);
+					slot->tts_isnull[1] = false;
+					slot->tts_values[2] = Int16GetDatum( itup->t_tid.ip_blkid.bi_lo);
+					slot->tts_isnull[2] = false;
+					slot->tts_values[3] = Int16GetDatum( itup->t_tid.ip_posid);
+					slot->tts_isnull[3] = false;
+					slot->tts_values[4] = Int32GetDatum((int) searchPage);
+					slot->tts_isnull[4] = false;
+					ExecStoreVirtualTuple(slot);
+
+					tuplesort_puttupleslot(so->sortstate, slot);
 				}
 
-				Vector	   *a = PointerGetDatum(datum);
-				memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float));
-
-				tmp_tid[row] = itup->t_tid;
-				tmp_page[row] = Int32GetDatum((int) searchPage);
-				/*
-				
-				slots[row] =  MakeSingleTupleTableSlot(so->tupdesc); // <- ToDo: Generate only on batch init !
-				ExecClearTuple(slots[row]);
-				slots[row]->tts_isnull[0] = false;
-				slots[row]->tts_values[1] = PointerGetDatum(&itup->t_tid);
-				slots[row]->tts_isnull[1] = false;
-				slots[row]->tts_values[2] = Int32GetDatum((int) searchPage);
-				slots[row]->tts_isnull[2] = false;
-				ExecStoreVirtualTuple(slots[row]);
-				*/
-				row++;
 #else	
 
 				/*
@@ -252,8 +278,6 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #endif
 			}
 
-		
-
 			searchPage = IvfflatPageGetOpaque(page)->nextblkno;
 
 			UnlockReleaseBuffer(buf);
@@ -262,30 +286,34 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	}
 
 #ifdef XZ
-	if(row > 0) {
-		calc_distances_gpu_euclidean(M, V, C, row, v->dim);
-		for(int r = 0; r < row; r++) {
-			ExecClearTuple(slot);
-			slot->tts_values[0] = Float4GetDatum( C[r] );
-			slot->tts_isnull[0] = false;
-			slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
-			slot->tts_isnull[1] = false;
-			slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
-			slot->tts_isnull[2] = false;
-			slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
-			slot->tts_isnull[3] = false;
-			slot->tts_values[4] = tmp_page[r];
-			slot->tts_isnull[4] = false;
-			ExecStoreVirtualTuple(slot);
+	if(ivfflat_gpu) {
+		if(row > 0) {	
+			calc_distances_gpu_euclidean(M, V, C, row, v->dim);
 			
-			tuplesort_puttupleslot(so->sortstate, slot);
+			for(int r = 0; r < row; r++) {
+				ExecClearTuple(slot);
+				slot->tts_values[0] = Float4GetDatum( C[r] );
+				slot->tts_isnull[0] = false;
+				slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
+				slot->tts_isnull[1] = false;
+				slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
+				slot->tts_isnull[2] = false;
+				slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
+				slot->tts_isnull[3] = false;
+				slot->tts_values[4] = tmp_page[r];
+				slot->tts_isnull[4] = false;
+				ExecStoreVirtualTuple(slot);
+				
+				tuplesort_puttupleslot(so->sortstate, slot);
+			}
 		}
-		row = 0;			
-	}
 
-	free_shared_gpu_memory(M);
-	free_shared_gpu_memory(V);
-	free_shared_gpu_memory(C);
+		free_shared_gpu_memory(M);
+		free_shared_gpu_memory(V);
+		free_shared_gpu_memory(C);
+		pfree(tmp_page);
+		pfree(tmp_tid);
+	}
 #endif
 
 	tuplesort_performsort(so->sortstate);

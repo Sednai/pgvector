@@ -14,6 +14,8 @@
 #endif
 
 int			ivfflat_probes;
+bool        ivfflat_gpu;
+int 		ivfflat_gpu_batchsize;
 static relopt_kind ivfflat_relopt_kind;
 
 /*
@@ -41,6 +43,16 @@ _PG_init(void)
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",
 							"Valid range is 1..lists.", &ivfflat_probes,
 							1, 1, IVFFLAT_MAX_LISTS, PGC_USERSET, 0, NULL, NULL, NULL);
+
+#ifdef XZ
+	DefineCustomBoolVariable("ivfflat.gpu", "Enable GPU",
+							NULL, &ivfflat_gpu,
+							true, PGC_USERSET, 0, NULL, NULL, NULL);
+	DefineCustomIntVariable("ivfflat.gpu_batchsize", "GPU batch size",
+							NULL, &ivfflat_gpu_batchsize,
+							100000,1000,10000000, PGC_USERSET, 0, NULL, NULL, NULL);
+
+#endif
 }
 
 /*

@@ -72,7 +72,8 @@
 
 /* Variables */
 extern int	ivfflat_probes;
-
+extern bool ivfflat_gpu;
+extern int  ivfflat_gpu_batchsize;
 
 #ifndef XZ
 typedef struct VectorArrayData
