@@ -118,7 +118,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	Datum		datum;
 	bool		isnull;
 	TupleDesc	tupdesc = RelationGetDescr(scan->indexRelation);
-
+	
 #if PG_VERSION_NUM >= 120000
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(so->tupdesc, &TTSOpsVirtual);
 #else
@@ -210,6 +210,9 @@ GetScanItems(IndexScanDesc scan, Datum value)
 						calc_distances_gpu_euclidean(M, V, C, row, v->dim);
 						
 						for(int r = 0; r < row; r++) {
+							
+							// ToDo: Scan where clause ? <- Evaluate on GPU ?
+
 							ExecClearTuple(slot);
 							slot->tts_values[0] = Float4GetDatum( C[r] );
 							slot->tts_isnull[0] = false;
@@ -229,7 +232,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 					}
 
 					Vector	   *a = PointerGetDatum(datum);
-					memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float));
+					memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float)); // <- Do not use uniform memory but async copy ?
 
 					tmp_tid[row] = itup->t_tid;
 					tmp_page[row] = Int32GetDatum((int) searchPage);
@@ -237,7 +240,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 					row++;
 
 					if(row % 100000 == 0) {
-						prefetch_gpu_memory(&M[row-100000*v->dim*sizeof(float)], 100000*v->dim*sizeof(float), 0);
+						prefetch_gpu_memory(&M[(row-100000)*v->dim], 100000*v->dim*sizeof(float), 0);
 					}
 				} else {
 						 
@@ -291,6 +294,9 @@ GetScanItems(IndexScanDesc scan, Datum value)
 			calc_distances_gpu_euclidean(M, V, C, row, v->dim);
 			
 			for(int r = 0; r < row; r++) {
+				
+				// ToDo: Scan where clause ?
+
 				ExecClearTuple(slot);
 				slot->tts_values[0] = Float4GetDatum( C[r] );
 				slot->tts_isnull[0] = false;
@@ -308,9 +314,9 @@ GetScanItems(IndexScanDesc scan, Datum value)
 			}
 		}
 
-		free_shared_gpu_memory(M);
-		free_shared_gpu_memory(V);
-		free_shared_gpu_memory(C);
+		free_gpu_memory(M);
+		free_gpu_memory(V);
+		free_gpu_memory(C);
 		pfree(tmp_page);
 		pfree(tmp_tid);
 	}
