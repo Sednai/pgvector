@@ -59,12 +59,12 @@ _PG_init(void)
 							"Should not exceed GPU batch size", &ivfflat_gpu_prefetchsize,
 							100000,1000,10000000, PGC_USERSET, 0, NULL, NULL, NULL);
 	
-	DefineCustomIntVariable("ivfflat.initbuffersize", "Initital distance order buffer size",
+	DefineCustomIntVariable("ivfflat.initbuffersize", "Initial distance order buffer size",
 							"Doubles until maxbuffersize is reached", &ivfflat_initbuffersize,
-							10000000,1000000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
+							1000000,100000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
 	DefineCustomIntVariable("ivfflat.maxbuffersize", "Maximum distance order buffer size",
 							"Determines max number of possible usable index vectors", &ivfflat_maxbuffersize,
-							20000000,1000000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
+							10000000,1000000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
 							
 
 #endif

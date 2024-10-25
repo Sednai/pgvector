@@ -194,7 +194,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 		C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
 		
 		memcpy(V,v->x,v->dim*sizeof(float));
-
+		
 		tmp_tid = palloc(sizeof(ItemPointerData)*BATCH_SIZE); 
 		tmp_page = palloc(sizeof(Datum) * BATCH_SIZE);
 
@@ -269,6 +269,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 					if(row % ivfflat_gpu_prefetchsize == 0) {
 						prefetch_gpu_memory(&M[(row-ivfflat_gpu_prefetchsize)*v->dim], ivfflat_gpu_prefetchsize*v->dim*sizeof(float), 0);
 					}
+
 				} else {
 					adjust_buffer(L,1);
 
@@ -417,6 +418,13 @@ ivfflatbeginscan(Relation index, int nkeys, int norderbys)
 
 	scan->opaque = so;
 
+#ifdef XZ
+	so->L.max_length = Min(ivfflat_initbuffersize, ivfflat_maxbuffersize);
+	so->L.length = 0;
+	so->L.data = palloc(sizeof(page_item) * so->L.max_length);
+	so->L.pos = 0;
+#endif
+
 	return scan;
 }
 
@@ -444,6 +452,12 @@ ivfflatrescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys, int
 
 	if (orderbys && scan->numberOfOrderBys > 0)
 		memmove(scan->orderByData, orderbys, scan->numberOfOrderBys * sizeof(ScanKeyData));
+
+#ifdef XZ
+	so->L.length = 0;
+	so->L.pos = 0;
+#endif
+
 }
 
 /*
@@ -480,12 +494,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			if (!IvfflatNormValue(so->normprocinfo, so->collation, &value, NULL))
 				return false;
 		}
-#ifdef XZ
-		so->L.max_length = Min(ivfflat_initbuffersize, ivfflat_maxbuffersize);
-		so->L.length = 0;
-		so->L.data = palloc(sizeof(page_item) * so->L.max_length);
-		so->L.pos = 0;
-#endif
+
 		IvfflatBench("GetScanLists", GetScanLists(scan, value));
 		IvfflatBench("GetScanItems", GetScanItems(scan, value));
 		so->first = false;
@@ -542,8 +551,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		return true;
 	}
 
-	pfree(so->L.data);
-	
+
 	return false;
 }
 
@@ -564,6 +572,11 @@ ivfflatendscan(IndexScanDesc scan)
 #ifndef XZ
 	tuplesort_end(so->sortstate);
 #endif
+
+#ifdef XZ
+	pfree(so->L.data);
+#endif
+
 	pfree(so);
 	scan->opaque = NULL;
 }

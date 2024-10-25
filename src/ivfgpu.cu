@@ -58,7 +58,7 @@ __global__ void calc_squared_euclidean_distances_v1(float* M, float* V, float* C
 
     unsigned int x,y;
     
-    __shared__ float tmp[64]; 
+    __shared__ float tmp[32]; 
     
     for(x = indexx; x < N; x += stridex) {
         tmp[threadIdx.x] = 0;
@@ -161,7 +161,7 @@ extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N
     //calc_euclidean_distances_v1<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);   
     
     dim3 DimGrid(1024, 2); 
-    dim3 DimBlock(64, 16); 
+    dim3 DimBlock(32, 32); 
     
     nullify<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(C, N);    
     calc_squared_euclidean_distances_v1<<<DimGrid,DimBlock>>>(M, V, C, N, L);    
