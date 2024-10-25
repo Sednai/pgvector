@@ -9,7 +9,9 @@
 #include "utils/sampling.h"
 #include "utils/tuplesort.h"
 #include "vector.h"
-
+#ifdef XZ
+#include "ivfgpu.h"
+#endif
 #ifdef IVFFLAT_BENCH
 #include "portability/instr_time.h"
 #endif
@@ -190,12 +192,6 @@ typedef struct IvfflatScanList
 
 
 #ifdef XZ
-typedef struct page_item {
-	float distance;
-	ItemPointerData ipd;
-	int searchPage;
-} page_item;
-
 
 typedef struct page_list {
 	int length;

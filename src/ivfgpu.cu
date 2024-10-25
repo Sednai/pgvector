@@ -1,4 +1,6 @@
-#include <stdio.h>
+#include "ivfgpu.h"
+#include <thrust/sort.h>
+#include <thrust/device_ptr.h>
 
 #define THREADS_PER_BLOCK 1024
 
@@ -109,7 +111,7 @@ __global__ void nullify(float* C, int N) {
     }
 }
 
-extern "C" void* init_shared_gpu_memory(int size) {
+void* init_shared_gpu_memory(int size) {
     // Initialize unified memory
     void* M;
     cudaMallocManaged(&M, size);
@@ -117,44 +119,44 @@ extern "C" void* init_shared_gpu_memory(int size) {
     return M;
 }
 
-extern "C" void init_gpu_memory(void** P, int size) {
+void init_gpu_memory(void** P, int size) {
     // Initialize non-unified memory
     cudaMalloc(P, size);    
 }
 
-extern "C" void free_gpu_memory(void* P) {
+void free_gpu_memory(void* P) {
     cudaFree(P);
 }
 
-extern "C" void prefetch_gpu_memory(void* P, int size, int device) {
+void prefetch_gpu_memory(void* P, int size, int device) {
     cudaMemPrefetchAsync(P, size, device);
 }
 
-extern "C" void advise_memory_readonly(void* P, int size, int device ) {
+void advise_memory_readonly(void* P, int size, int device ) {
        cudaMemAdvise(P, size, cudaMemAdviseSetReadMostly, device);
 }
 
-extern "C" void copy_memory_to_gpu(void* T, void* F, int size) {
+void copy_memory_to_gpu(void* T, void* F, int size) {
     cudaMemcpy(T, F, size, cudaMemcpyHostToDevice);
 }
 
-extern "C" void copy_memory_async_to_gpu(void* T, void* F, int size) {
+void copy_memory_async_to_gpu(void* T, void* F, int size) {
     cudaMemcpyAsync(T, F, size, cudaMemcpyHostToDevice);
 }
 
-extern "C" void copy_memory_to_cpu(void* T, void* F, int size) {
+void copy_memory_to_cpu(void* T, void* F, int size) {
     cudaMemcpy(T, F, size, cudaMemcpyDeviceToHost);
 }
 
-extern "C" void copy_memory_async_to_cpu(void* T, void* F, int size) {
+void copy_memory_async_to_cpu(void* T, void* F, int size) {
     cudaMemcpyAsync(T, F, size, cudaMemcpyDeviceToHost);
 }
 
-extern "C" void synchronize_gpu() {
+void synchronize_gpu() {
     cudaDeviceSynchronize();
 }
 
-extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
+void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
     
     //calc_euclidean_distances_v0<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
     //calc_euclidean_distances_v1<<<1024,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
@@ -172,3 +174,15 @@ extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N
    
 }
 
+struct cmp : public thrust::less<page_item>
+{
+   __inline__
+   __host__ __device__
+   bool operator()(const page_item& a, const page_item& b) const{
+      return a.distance < b.distance;
+   }
+};
+void sort_array(page_item* P, int N) {
+    thrust::sort(thrust::device, P, P + N, cmp() );
+    cudaDeviceSynchronize();
+}

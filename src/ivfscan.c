@@ -15,9 +15,6 @@
 #include "catalog/pg_type.h"
 #endif
 
-#ifdef XZ
-#include "ivfgpu.h"
-#endif
 /*
  * Compare list distances
  */
@@ -331,8 +328,13 @@ GetScanItems(IndexScanDesc scan, Datum value)
 		pfree(tmp_tid);
 	}
 
-	qsort(L->data, L->length, sizeof(page_item), compare_pi);
+	//qsort(L->data, L->length, sizeof(page_item), compare_pi);
 
+	page_item* D = (page_item*) init_shared_gpu_memory(L->length*sizeof(page_item) );
+	memcpy(D,L->data,L->length*sizeof(page_item));
+	sort_array(D,L->length);	
+	memcpy(L->data,D,L->length*sizeof(page_item));
+	
 #else
 	tuplesort_performsort(so->sortstate);
 #endif
