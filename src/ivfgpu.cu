@@ -117,12 +117,10 @@ extern "C" void* init_shared_gpu_memory(int size) {
     return M;
 }
 
-extern "C" void init_gpu_memory(void* P, int size) {
-    // Initialize unified memory
-  
-    cudaMalloc(&P, size);    
+extern "C" void init_gpu_memory(void** P, int size) {
+    // Initialize non-unified memory
+    cudaMalloc(P, size);    
 }
-
 
 extern "C" void free_gpu_memory(void* P) {
     cudaFree(P);
@@ -136,21 +134,41 @@ extern "C" void advise_memory_readonly(void* P, int size, int device ) {
        cudaMemAdvise(P, size, cudaMemAdviseSetReadMostly, device);
 }
 
+extern "C" void copy_memory_to_gpu(void* T, void* F, int size) {
+    cudaMemcpy(T, F, size, cudaMemcpyHostToDevice);
+}
+
+extern "C" void copy_memory_async_to_gpu(void* T, void* F, int size) {
+    cudaMemcpyAsync(T, F, size, cudaMemcpyHostToDevice);
+}
+
+extern "C" void copy_memory_to_cpu(void* T, void* F, int size) {
+    cudaMemcpy(T, F, size, cudaMemcpyDeviceToHost);
+}
+
+extern "C" void copy_memory_async_to_cpu(void* T, void* F, int size) {
+    cudaMemcpyAsync(T, F, size, cudaMemcpyDeviceToHost);
+}
+
+extern "C" void synchronize_gpu() {
+    cudaDeviceSynchronize();
+}
+
 extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
-       
+    
     //calc_euclidean_distances_v0<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
     //calc_euclidean_distances_v1<<<1024,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
     //calc_euclidean_distances_v1<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);   
-
     
     dim3 DimGrid(1024, 2); 
     dim3 DimBlock(64, 16); 
-   
+    
     nullify<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(C, N);    
     calc_squared_euclidean_distances_v1<<<DimGrid,DimBlock>>>(M, V, C, N, L);    
     apply_sqrt<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(C, N);    
     
     cudaMemPrefetchAsync(C, N*sizeof(float), cudaCpuDeviceId);
     cudaDeviceSynchronize();
+   
 }
 

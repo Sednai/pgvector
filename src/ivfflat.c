@@ -16,6 +16,10 @@
 int			ivfflat_probes;
 bool        ivfflat_gpu;
 int 		ivfflat_gpu_batchsize;
+int 		ivfflat_gpu_prefetchsize;
+int			ivfflat_initbuffersize;
+int			ivfflat_maxbuffersize;
+
 static relopt_kind ivfflat_relopt_kind;
 
 /*
@@ -49,8 +53,19 @@ _PG_init(void)
 							NULL, &ivfflat_gpu,
 							true, PGC_USERSET, 0, NULL, NULL, NULL);
 	DefineCustomIntVariable("ivfflat.gpu_batchsize", "GPU batch size",
-							NULL, &ivfflat_gpu_batchsize,
+							"Should not exceed ivfflat.maxbuffersize", &ivfflat_gpu_batchsize,
 							100000,1000,10000000, PGC_USERSET, 0, NULL, NULL, NULL);
+	DefineCustomIntVariable("ivfflat.gpu_prefetchsize", "GPU prefetch size",
+							"Should not exceed GPU batch size", &ivfflat_gpu_prefetchsize,
+							100000,1000,10000000, PGC_USERSET, 0, NULL, NULL, NULL);
+	
+	DefineCustomIntVariable("ivfflat.initbuffersize", "Initital distance order buffer size",
+							"Doubles until maxbuffersize is reached", &ivfflat_initbuffersize,
+							10000000,1000000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
+	DefineCustomIntVariable("ivfflat.maxbuffersize", "Maximum distance order buffer size",
+							"Determines max number of possible usable index vectors", &ivfflat_maxbuffersize,
+							20000000,1000000,1000000000, PGC_USERSET, 0, NULL, NULL, NULL);
+							
 
 #endif
 }

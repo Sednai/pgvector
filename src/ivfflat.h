@@ -74,6 +74,9 @@
 extern int	ivfflat_probes;
 extern bool ivfflat_gpu;
 extern int  ivfflat_gpu_batchsize;
+extern int  ivfflat_gpu_prefetchsize;
+extern int  ivfflat_initbuffersize;
+extern int  ivfflat_maxbuffersize;
 
 #ifndef XZ
 typedef struct VectorArrayData
@@ -185,6 +188,24 @@ typedef struct IvfflatScanList
 	double		distance;
 }			IvfflatScanList;
 
+
+#ifdef XZ
+typedef struct page_item {
+	float distance;
+	ItemPointerData ipd;
+	int searchPage;
+} page_item;
+
+
+typedef struct page_list {
+	int length;
+	int max_length;
+	int pos;
+	page_item* data;
+} page_list;
+
+#endif 
+
 typedef struct IvfflatScanOpaqueData
 {
 	int			probes;
@@ -196,7 +217,9 @@ typedef struct IvfflatScanOpaqueData
 	TupleDesc	tupdesc;
 	TupleTableSlot *slot;
 	bool		isnull;
-
+#ifdef XZ
+	page_list 	L; 
+#endif
 	/* Support functions */
 	FmgrInfo   *procinfo;
 	FmgrInfo   *normprocinfo;
@@ -268,6 +291,8 @@ void		ivfflatendscan(IndexScanDesc scan);
 Size		ivffestimateparallelscan(void);
 void		ivffinitparallelscan(void *target);
 void 		ivffparallelrescan(IndexScanDesc scan);
+
+
 #endif
 
 

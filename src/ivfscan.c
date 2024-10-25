@@ -102,6 +102,37 @@ GetScanLists(IndexScanDesc scan, Datum value)
 	}
 }
 
+#ifdef XZ
+static int compare_pi(const void* a, const void* b) {
+	
+	const struct page_item *elem1 = a;    
+    const struct page_item *elem2 = b;
+
+   if (elem1->distance < elem2->distance)
+      return -1;
+   else if (elem1->distance > elem2->distance)
+      return 1;
+   else
+      return 0;
+}
+
+static void adjust_buffer(page_list* L, int n_new_elements) {
+	// Adjust buffer
+	if(L->length+n_new_elements >= L->max_length) {
+		if( L->max_length < ivfflat_maxbuffersize) {
+			int n = Min((L->max_length+n_new_elements)*2, ivfflat_maxbuffersize);
+			L->data = repalloc(L->data,n*sizeof(page_item));
+			if(L->data == NULL) 
+				elog(ERROR,"Fatal error occured in re-allocating buffer memory.");
+			
+			L->max_length = n;
+
+		} else
+			elog(ERROR,"Max buffer setting too small. ivfflat.maxbuffersize has to be increased");
+	}
+}				
+
+#endif
 /*
  * Get items
  */
@@ -147,20 +178,22 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	float* V;
 	float* C;
 	
-	
 	ItemPointerData* tmp_tid; 
-	Datum* tmp_page;
+	int* tmp_page;
+	page_list* L = &so->L;
+
 	int row;
 
 	if(ivfflat_gpu) {
+
 		BATCH_SIZE = ivfflat_gpu_batchsize;
 		v = PointerGetDatum(value);
+		
 		M = (float*) init_shared_gpu_memory(v->dim*BATCH_SIZE*sizeof(float) );
 		V = (float*) init_shared_gpu_memory(v->dim*sizeof(float) );
 		C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
+		
 		memcpy(V,v->x,v->dim*sizeof(float));
-		advise_memory_readonly(V, v->dim*sizeof(float), 0); 
-		prefetch_gpu_memory(V, v->dim*sizeof(float), 0);
 
 		tmp_tid = palloc(sizeof(ItemPointerData)*BATCH_SIZE); 
 		tmp_page = palloc(sizeof(Datum) * BATCH_SIZE);
@@ -206,60 +239,46 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #ifdef XZ
 				if(ivfflat_gpu) {
 					if (row == BATCH_SIZE) {
-
-						calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+ 						calc_distances_gpu_euclidean(M, V, C, row, v->dim);
 						
-						for(int r = 0; r < row; r++) {
+						adjust_buffer(L,row);
+
+						for(int r = 0; r < row; r++) {	
+						
+							page_item* I = &L->data[L->length];
+							I->distance = C[r];
+							I->ipd = tmp_tid[r];
+							I->searchPage = tmp_page[r];
+							L->length++;
+						
 							
 							// ToDo: Scan where clause ? <- Evaluate on GPU ?
-
-							ExecClearTuple(slot);
-							slot->tts_values[0] = Float4GetDatum( C[r] );
-							slot->tts_isnull[0] = false;
-							slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
-							slot->tts_isnull[1] = false;
-							slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
-							slot->tts_isnull[2] = false;
-							slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
-							slot->tts_isnull[3] = false;
-							slot->tts_values[4] = tmp_page[r];
-							slot->tts_isnull[4] = false;
-							ExecStoreVirtualTuple(slot);
 							
-							tuplesort_puttupleslot(so->sortstate, slot);
 						}			
 						row = 0;
 					}
 
 					Vector	   *a = PointerGetDatum(datum);
-					memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float)); // <- Do not use uniform memory but async copy ?
-
+					memcpy(&M[row*a->dim],a->x,a->dim*sizeof(float)); 
+					
 					tmp_tid[row] = itup->t_tid;
-					tmp_page[row] = Int32GetDatum((int) searchPage);
+					tmp_page[row] = (int) searchPage;
 					
 					row++;
 
-					if(row % 100000 == 0) {
-						prefetch_gpu_memory(&M[(row-100000)*v->dim], 100000*v->dim*sizeof(float), 0);
+					if(row % ivfflat_gpu_prefetchsize == 0) {
+						prefetch_gpu_memory(&M[(row-ivfflat_gpu_prefetchsize)*v->dim], ivfflat_gpu_prefetchsize*v->dim*sizeof(float), 0);
 					}
 				} else {
-						 
-					ExecClearTuple(slot);
-					slot->tts_values[0] = FunctionCall2Coll(so->procinfo, so->collation, datum, value);
-					slot->tts_isnull[0] = false;
-					slot->tts_values[1] = Int16GetDatum( itup->t_tid.ip_blkid.bi_hi);
-					slot->tts_isnull[1] = false;
-					slot->tts_values[2] = Int16GetDatum( itup->t_tid.ip_blkid.bi_lo);
-					slot->tts_isnull[2] = false;
-					slot->tts_values[3] = Int16GetDatum( itup->t_tid.ip_posid);
-					slot->tts_isnull[3] = false;
-					slot->tts_values[4] = Int32GetDatum((int) searchPage);
-					slot->tts_isnull[4] = false;
-					ExecStoreVirtualTuple(slot);
+					adjust_buffer(L,1);
 
-					tuplesort_puttupleslot(so->sortstate, slot);
+					page_item* I = &L->data[L->length];
+					I->distance = DatumGetFloat8(FunctionCall2Coll(so->procinfo, so->collation, datum, value));
+					I->ipd = itup->t_tid;
+					I->searchPage = (int) searchPage;
+					L->length++;
+					
 				}
-
 #else	
 
 				/*
@@ -292,25 +311,15 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	if(ivfflat_gpu) {
 		if(row > 0) {	
 			calc_distances_gpu_euclidean(M, V, C, row, v->dim);
-			
-			for(int r = 0; r < row; r++) {
-				
-				// ToDo: Scan where clause ?
+			adjust_buffer(L,row);
 
-				ExecClearTuple(slot);
-				slot->tts_values[0] = Float4GetDatum( C[r] );
-				slot->tts_isnull[0] = false;
-				slot->tts_values[1] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_hi);
-				slot->tts_isnull[1] = false;
-				slot->tts_values[2] = Int16GetDatum( tmp_tid[r].ip_blkid.bi_lo);
-				slot->tts_isnull[2] = false;
-				slot->tts_values[3] = Int16GetDatum( tmp_tid[r].ip_posid);
-				slot->tts_isnull[3] = false;
-				slot->tts_values[4] = tmp_page[r];
-				slot->tts_isnull[4] = false;
-				ExecStoreVirtualTuple(slot);
-				
-				tuplesort_puttupleslot(so->sortstate, slot);
+			for(int r = 0; r < row; r++) {
+				page_item* I = &L->data[L->length];
+				I->distance = C[r];
+				I->ipd = tmp_tid[r];
+				I->searchPage = tmp_page[r];
+				L->length++;
+				// ToDo: Scan where clause ?
 			}
 		}
 
@@ -320,9 +329,12 @@ GetScanItems(IndexScanDesc scan, Datum value)
 		pfree(tmp_page);
 		pfree(tmp_tid);
 	}
-#endif
 
+	qsort(L->data, L->length, sizeof(page_item), compare_pi);
+
+#else
 	tuplesort_performsort(so->sortstate);
+#endif
 }
 
 /*
@@ -383,11 +395,16 @@ ivfflatbeginscan(Relation index, int nkeys, int norderbys)
 	TupleDescInitEntry(so->tupdesc, (AttrNumber) 2, "tid", TIDOID, -1, 0);
 	TupleDescInitEntry(so->tupdesc, (AttrNumber) 3, "indexblkno", INT4OID, -1, 0);
 #endif
+
+#ifndef XZ
+
 	/* Prep sort */
 #if PG_VERSION_NUM >= 110000
 	so->sortstate = tuplesort_begin_heap(so->tupdesc, 1, attNums, sortOperators, sortCollations, nullsFirstFlags, work_mem, NULL, false);
 #else
 	so->sortstate = tuplesort_begin_heap(so->tupdesc, 1, attNums, sortOperators, sortCollations, nullsFirstFlags, work_mem, false);
+#endif
+
 #endif
 
 #if PG_VERSION_NUM >= 120000
@@ -411,11 +428,14 @@ ivfflatrescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys, int
 {
 	IvfflatScanOpaque so = (IvfflatScanOpaque) scan->opaque;
 
+#ifndef XZ
+
 #if PG_VERSION_NUM >= 130000
 	if (!so->first)
 		tuplesort_reset(so->sortstate);
 #endif
 
+#endif
 	so->first = true;
 	pairingheap_reset(so->listQueue);
 
@@ -460,7 +480,12 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			if (!IvfflatNormValue(so->normprocinfo, so->collation, &value, NULL))
 				return false;
 		}
-
+#ifdef XZ
+		so->L.max_length = Min(ivfflat_initbuffersize, ivfflat_maxbuffersize);
+		so->L.length = 0;
+		so->L.data = palloc(sizeof(page_item) * so->L.max_length);
+		so->L.pos = 0;
+#endif
 		IvfflatBench("GetScanLists", GetScanLists(scan, value));
 		IvfflatBench("GetScanItems", GetScanItems(scan, value));
 		so->first = false;
@@ -471,20 +496,22 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	}
 
 #if PG_VERSION_NUM >= 100000
+#ifdef XZ
+	if(so->L.pos < so->L.length)
+#else
 	if (tuplesort_gettupleslot(so->sortstate, true, false, so->slot, NULL))
+#endif
 #else
 	if (tuplesort_gettupleslot(so->sortstate, true, so->slot, NULL))
 #endif
 	{
 #ifdef XZ
 		ItemPointerData tid;
-		tid.ip_blkid.bi_hi = DatumGetInt16(slot_getattr(so->slot, 2, &so->isnull));
-		tid.ip_blkid.bi_lo = DatumGetInt16(slot_getattr(so->slot, 3, &so->isnull));
-		tid.ip_posid = DatumGetInt16(slot_getattr(so->slot, 4, &so->isnull));
+		tid = so->L.data[so->L.pos].ipd;
 
 		scan->xs_ctup.t_self = tid;
 
-		BlockNumber indexblkno = DatumGetInt32(slot_getattr(so->slot, 5, &so->isnull));
+		BlockNumber indexblkno = so->L.data[so->L.pos].searchPage;
 
 #else
 		ItemPointer tid = (ItemPointer) DatumGetPointer(slot_getattr(so->slot, 2, &so->isnull));
@@ -509,9 +536,14 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		so->buf = ReadBuffer(scan->indexRelation, indexblkno);
 
 		scan->xs_recheckorderby = false;
+
+		so->L.pos++;
+
 		return true;
 	}
 
+	pfree(so->L.data);
+	
 	return false;
 }
 
@@ -528,8 +560,10 @@ ivfflatendscan(IndexScanDesc scan)
 		ReleaseBuffer(so->buf);
 
 	pairingheap_free(so->listQueue);
-	tuplesort_end(so->sortstate);
 
+#ifndef XZ
+	tuplesort_end(so->sortstate);
+#endif
 	pfree(so);
 	scan->opaque = NULL;
 }

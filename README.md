@@ -1,3 +1,16 @@
+# Experimental modifications in ivfflat:
+
+- PG tuplesort replaced with plain qsort
+- Index distance calculations in CUDA (currently always euclidean is used)
+
+New settings:
+- ivfflat.gpu 
+- ivfflat.gpu_batchsize
+- ivfflat.gpu_prefetchsize
+- ivfflat.initbuffersize
+- ivfflat.maxbuffersize
+
+
 # pgvector
 
 Open-source vector similarity search for Postgres
