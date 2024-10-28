@@ -174,6 +174,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 	float* M;
 	float* V;
 	float* C;
+	float V2s;
 	
 	ItemPointerData* tmp_tid; 
 	int* tmp_page;
@@ -186,6 +187,11 @@ GetScanItems(IndexScanDesc scan, Datum value)
 		BATCH_SIZE = ivfflat_gpu_batchsize;
 		v = PointerGetDatum(value);
 		
+		V2s = 0;
+		for(int i=0; i< v->dim; i++) {
+			V2s += (v->x[i])*(v->x[i]);
+		}
+
 		M = (float*) init_shared_gpu_memory(v->dim*BATCH_SIZE*sizeof(float) );
 		V = (float*) init_shared_gpu_memory(v->dim*sizeof(float) );
 		C = (float*) init_shared_gpu_memory(BATCH_SIZE*sizeof(float) );
@@ -236,7 +242,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #ifdef XZ
 				if(ivfflat_gpu) {
 					if (row == BATCH_SIZE) {
- 						calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+ 						calc_squared_distances_gpu_euclidean_mod(M, V, V2s, C, row, v->dim);
 						
 						adjust_buffer(L,row);
 
@@ -308,7 +314,7 @@ GetScanItems(IndexScanDesc scan, Datum value)
 #ifdef XZ
 	if(ivfflat_gpu) {
 		if(row > 0) {	
-			calc_distances_gpu_euclidean(M, V, C, row, v->dim);
+			calc_squared_distances_gpu_euclidean_mod(M, V, V2s, C, row, v->dim);
 			adjust_buffer(L,row);
 
 			for(int r = 0; r < row; r++) {
@@ -320,20 +326,24 @@ GetScanItems(IndexScanDesc scan, Datum value)
 				// ToDo: Scan where clause ?
 			}
 		}
-
+	
+		if(L->length > 0) {
+			page_item* D = (page_item*) init_shared_gpu_memory(L->length*sizeof(page_item) );
+			memcpy(D,L->data,L->length*sizeof(page_item));
+			prefetch_gpu_memory(D,L->length*sizeof(page_item),0);
+			sort_array_gpu(D,L->length);	
+			memcpy(L->data,D,L->length*sizeof(page_item));
+			free_gpu_memory(D);
+		}
 		free_gpu_memory(M);
 		free_gpu_memory(V);
 		free_gpu_memory(C);
 		pfree(tmp_page);
 		pfree(tmp_tid);
+
+	} else {
+		qsort(L->data, L->length, sizeof(page_item), compare_pi);
 	}
-
-	//qsort(L->data, L->length, sizeof(page_item), compare_pi);
-
-	page_item* D = (page_item*) init_shared_gpu_memory(L->length*sizeof(page_item) );
-	memcpy(D,L->data,L->length*sizeof(page_item));
-	sort_array(D,L->length);	
-	memcpy(L->data,D,L->length*sizeof(page_item));
 	
 #else
 	tuplesort_performsort(so->sortstate);

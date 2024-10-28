@@ -24,7 +24,9 @@ extern "C" void copy_memory_async_to_gpu(void* T, void* F, int size);
 extern "C" void copy_memory_async_to_cpu(void* T, void* F, int size);
 extern "C" void synchronize_gpu();
 extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
-extern "C" void sort_array(page_item* P, int N);
+extern "C" void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
+extern "C" void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);    
+extern "C" void sort_array_gpu(page_item* P, int N);
 #else
 extern void* init_shared_gpu_memory(int size);
 extern void init_gpu_memory(void** P, int size);
@@ -37,6 +39,8 @@ extern void copy_memory_async_to_gpu(void* T, void* F, int size);
 extern void copy_memory_async_to_cpu(void* T, void* F, int size);
 extern void synchronize_gpu();
 extern void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
-extern void sort_array(page_item* P, int N);
+extern void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
+extern void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);
+extern void sort_array_gpu(page_item* P, int N);
 
 #endif
