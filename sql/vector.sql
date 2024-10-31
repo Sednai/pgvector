@@ -212,11 +212,13 @@ CREATE OPERATOR CLASS vector_ops
 	OPERATOR 5 > ,
 	FUNCTION 1 vector_cmp(vector, vector);
 
+/*
 CREATE OPERATOR CLASS vector_l2_ops
 	DEFAULT FOR TYPE vector USING ivfflat AS
 	OPERATOR 1 <-> (vector, vector) FOR ORDER BY float_ops,
 	FUNCTION 1 vector_l2_squared_distance(vector, vector),
 	FUNCTION 3 l2_distance(vector, vector);
+*/
 
 CREATE OPERATOR CLASS vector_ip_ops
 	FOR TYPE vector USING ivfflat AS
@@ -259,3 +261,20 @@ $fn$
         RETURN 1;
     END;
 $fn$ language 'plpgsql';
+
+CREATE TYPE vector_adv as (vec vector, op int, condval float4);
+
+CREATE FUNCTION l2_distance_adv(vector, vector_adv) RETURNS float8
+	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OPERATOR <!> (
+	LEFTARG = vector, RIGHTARG = vector_adv, PROCEDURE = l2_distance_adv,
+	COMMUTATOR = '<!>'
+);
+
+CREATE OPERATOR CLASS vector_l2_ops
+	DEFAULT FOR TYPE vector USING ivfflat AS
+	OPERATOR 1 <-> (vector, vector) FOR ORDER BY float_ops,
+	OPERATOR 2 <!> (vector, vector_adv) FOR ORDER BY float_ops,
+	FUNCTION 1 vector_l2_squared_distance(vector, vector),
+	FUNCTION 3 l2_distance(vector, vector);

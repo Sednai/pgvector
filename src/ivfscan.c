@@ -15,6 +15,9 @@
 #include "catalog/pg_type.h"
 #endif
 
+#ifdef XZ
+#include "executor/executor.h"
+#endif
 /*
  * Compare list distances
  */
@@ -130,11 +133,42 @@ static void adjust_buffer(page_list* L, int n_new_elements) {
 }				
 
 #endif
+
+static inline bool filter(float val, float cond, int mode) {
+	switch(mode) {
+		case 0:
+			if( val == cond) 
+				return true;
+			break;
+		case 1:
+			if( val > cond)
+				return true;
+			break;
+		case -1:
+			if( val < cond)
+				return true;
+			break;
+		case 2:
+			if (val >= cond)
+				return true;
+			break;
+		case -2:
+			if (val <= cond)
+				return true;
+			break;
+		
+		case -100:
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * Get items
  */
 static void
-GetScanItems(IndexScanDesc scan, Datum value)
+GetScanItems(IndexScanDesc scan, Datum value, int op, float filterval)
 {
 	IvfflatScanOpaque so = (IvfflatScanOpaque) scan->opaque;
 	Buffer		buf;
@@ -246,17 +280,14 @@ GetScanItems(IndexScanDesc scan, Datum value)
 						
 						adjust_buffer(L,row);
 
-						for(int r = 0; r < row; r++) {	
-						
-							page_item* I = &L->data[L->length];
-							I->distance = C[r];
-							I->ipd = tmp_tid[r];
-							I->searchPage = tmp_page[r];
-							L->length++;
-						
-							
-							// ToDo: Scan where clause ? <- Evaluate on GPU ?
-							
+						for(int r = 0; r < row; r++) {		
+							if( filter(C[r], filterval, op) ) {
+								page_item* I = &L->data[L->length];
+								I->distance = C[r];
+								I->ipd = tmp_tid[r];
+								I->searchPage = tmp_page[r];
+								L->length++;
+							}
 						}			
 						row = 0;
 					}
@@ -318,12 +349,13 @@ GetScanItems(IndexScanDesc scan, Datum value)
 			adjust_buffer(L,row);
 
 			for(int r = 0; r < row; r++) {
-				page_item* I = &L->data[L->length];
-				I->distance = C[r];
-				I->ipd = tmp_tid[r];
-				I->searchPage = tmp_page[r];
-				L->length++;
-				// ToDo: Scan where clause ?
+				if(filter(C[r], filterval, op)) {
+					page_item* I = &L->data[L->length];
+					I->distance = C[r];
+					I->ipd = tmp_tid[r];
+					I->searchPage = tmp_page[r];
+					L->length++;
+				}
 			}
 		}
 	
@@ -499,7 +531,26 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			return false;
 
 		value = scan->orderByData->sk_argument;
+		
+		int op;
+		float filter;
 
+		if(scan->orderByData->sk_strategy == 2) {
+			TupleTableSlot  *t = (TupleTableSlot *) DatumGetPointer(value);
+			bool isnull;
+			value = GetAttributeByNum(t, 1, &isnull); 
+			if(isnull)
+				elog(ERROR,"Vector in advanced type can not be null !");	
+
+			op = DatumGetInt32( GetAttributeByNum(t, 2, &isnull) ); 
+			filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
+			filter = filter*filter; // Squared because we use squared distance
+		} else {
+			op = -100;
+			filter = -1;
+		}
+
+	
 		if (so->normprocinfo != NULL)
 		{
 			/* No items will match if normalization fails */
@@ -508,12 +559,14 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		}
 
 		IvfflatBench("GetScanLists", GetScanLists(scan, value));
-		IvfflatBench("GetScanItems", GetScanItems(scan, value));
+		IvfflatBench("GetScanItems", GetScanItems(scan, value, op, filter));
 		so->first = false;
 
-		/* Clean up if we allocated a new value */
-		if (value != scan->orderByData->sk_argument)
-			pfree(DatumGetPointer(value));
+		/* Clean up if we allocated a new value */		
+		if(scan->orderByData->sk_strategy != 2) {
+			if (value != scan->orderByData->sk_argument)
+				pfree(DatumGetPointer(value));
+		}
 	}
 
 #if PG_VERSION_NUM >= 100000

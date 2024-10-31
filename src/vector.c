@@ -14,6 +14,7 @@
 
 #ifdef XZ
 #include "ivfflat.h"
+#include "executor/executor.h"
 #endif
 
 #if PG_VERSION_NUM >= 120000
@@ -513,6 +514,38 @@ l2_distance(PG_FUNCTION_ARGS)
 
 	PG_RETURN_FLOAT8(sqrt(distance));
 }
+
+/*
+ * Get the L2 distance for vector_adv <!> vector 
+ */
+PG_FUNCTION_INFO_V1(l2_distance_adv);
+Datum
+l2_distance_adv(PG_FUNCTION_ARGS)
+{
+	Vector	   *a = PG_GETARG_VECTOR_P(0);
+	TupleTableSlot  *t = (TupleTableSlot *) PG_GETARG_POINTER(1);
+	bool isnull;
+
+	Datum attr = GetAttributeByNum(t, 1, &isnull);
+	
+	if(isnull)
+		PG_RETURN_FLOAT8(NAN);
+	
+	Vector	   *b = DatumGetVector(attr);
+	double		distance = 0.0;
+	double		diff;
+
+	CheckDims(a, b);
+
+	for (int i = 0; i < a->dim; i++)
+	{
+		diff = a->x[i] - b->x[i];
+		distance += diff * diff;
+	}
+
+	PG_RETURN_FLOAT8(sqrt(distance));
+}
+
 
 /*
  * Get the L2 squared distance between vectors
