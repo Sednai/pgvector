@@ -3,7 +3,7 @@
 - PG tuplesort replaced with plain qsort
 - Index distance calculations in CUDA (currently always euclidean is used)
 - Sort on GPU
-- Where clause directly on index
+- Where clause directly during index scan
 
 New settings:
 - ivfflat.gpu 
@@ -12,7 +12,7 @@ New settings:
 - ivfflat.initbuffersize
 - ivfflat.maxbuffersize
 
-New operator for `where` clause on index:
+New operator for `where` clause in index scan:
 
 ```tsql
 vector <!> vector_adv
