@@ -51,7 +51,7 @@ _PG_init(void)
 #ifdef XZ
 	DefineCustomBoolVariable("ivfflat.gpu", "Enable GPU",
 							NULL, &ivfflat_gpu,
-							true, PGC_USERSET, 0, NULL, NULL, NULL);
+							false, PGC_USERSET, 0, NULL, NULL, NULL);
 	DefineCustomIntVariable("ivfflat.gpu_batchsize", "GPU batch size",
 							"Should not exceed ivfflat.maxbuffersize", &ivfflat_gpu_batchsize,
 							100000,1000,10000000, PGC_USERSET, 0, NULL, NULL, NULL);

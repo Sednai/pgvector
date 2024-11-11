@@ -305,14 +305,15 @@ GetScanItems(IndexScanDesc scan, Datum value, int op, float filterval)
 					}
 
 				} else {
-					adjust_buffer(L,1);
-
-					page_item* I = &L->data[L->length];
-					I->distance = DatumGetFloat8(FunctionCall2Coll(so->procinfo, so->collation, datum, value));
-					I->ipd = itup->t_tid;
-					I->searchPage = (int) searchPage;
-					L->length++;
-					
+					double tmp = FunctionCall2Coll(so->procinfo, so->collation, datum, value);
+					if(filter(tmp, filterval, op)) { 
+						adjust_buffer(L,1);
+						page_item* I = &L->data[L->length];
+						I->distance = DatumGetFloat8(tmp);
+						I->ipd = itup->t_tid;
+						I->searchPage = (int) searchPage;
+						L->length++;
+					}
 				}
 #else	
 
