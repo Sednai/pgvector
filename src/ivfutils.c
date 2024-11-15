@@ -346,7 +346,7 @@ void getCentroidsFromTable(char* schemaname, char* tabname, char* colname,int N,
 			tablen = strlen(tabname)+strlen(schemaname)+2;
 		}
 		else {
-			tablen = strlen(tabname);
+			tablen = strlen(tabname)+1;
 		}
 		char tabn[tablen];
 		if(schemaname != NULL) {
