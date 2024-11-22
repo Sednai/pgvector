@@ -11,6 +11,26 @@ typedef struct page_item {
 	int searchPage;
 } page_item;
 
+typedef struct page_list {
+	long length;
+	long max_length;
+	int pos;
+	page_item* data;
+} page_list;
+
+static int compare_pi(const void* a, const void* b) {
+	
+	const page_item *elem1 = (page_item*) a;    
+    const page_item *elem2 = (page_item*) b;
+
+   if (elem1->distance < elem2->distance)
+      return -1;
+   else if (elem1->distance > elem2->distance)
+      return 1;
+   else
+      return 0;
+}
+
 
 #ifdef __cplusplus
 extern "C" void* init_shared_gpu_memory(int size);
@@ -26,6 +46,7 @@ extern "C" void synchronize_gpu();
 extern "C" void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
 extern "C" void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
 extern "C" void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);    
+extern "C" void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float* C, int N, int L);
 extern "C" void sort_array_gpu(page_item* P, int N);
 #else
 extern void* init_shared_gpu_memory(int size);
@@ -41,6 +62,7 @@ extern void synchronize_gpu();
 extern void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
 extern void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L);
 extern void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);
+extern void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float* C, int N, int L);
 extern void sort_array_gpu(page_item* P, int N);
 
 #endif

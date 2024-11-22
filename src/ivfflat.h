@@ -75,6 +75,7 @@
 /* Variables */
 extern int	ivfflat_probes;
 extern bool ivfflat_gpu;
+extern bool ivfflat_bgw;
 extern int  ivfflat_gpu_batchsize;
 extern int  ivfflat_gpu_prefetchsize;
 extern int  ivfflat_initbuffersize;
@@ -189,18 +190,6 @@ typedef struct IvfflatScanList
 	BlockNumber startPage;
 	double		distance;
 }			IvfflatScanList;
-
-
-#ifdef XZ
-
-typedef struct page_list {
-	int length;
-	int max_length;
-	int pos;
-	page_item* data;
-} page_list;
-
-#endif 
 
 typedef struct IvfflatScanOpaqueData
 {

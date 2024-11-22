@@ -203,6 +203,13 @@ void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
    
 }
 
+
+void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float* C, int N, int L) {
+    
+    calc_squared_euclidean_distances_v0<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
+}
+
+
 void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
     
     calc_squared_euclidean_distances_v0<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
@@ -236,7 +243,7 @@ struct cmp : public thrust::less<page_item>
 {
    __inline__
    __host__ __device__
-   bool operator()(const page_item& a, const page_item& b) const{
+   bool operator()(const page_item& a, const page_item& b) const {
       return a.distance < b.distance;
    }
 };

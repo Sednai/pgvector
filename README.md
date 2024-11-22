@@ -2,8 +2,9 @@
 
 - PG tuplesort replaced with plain qsort
 - Where clause directly during index scan
-- Index distance calculations in CUDA (currently always euclidean is used)
+- Index distance calculations on GPU (currently always euclidean is used)
 - Sort on GPU
+- Experimental background worker process (in order to keep index in memory)
 
 New settings:
 - ivfflat.gpu 
@@ -11,6 +12,7 @@ New settings:
 - ivfflat.gpu_prefetchsize
 - ivfflat.initbuffersize
 - ivfflat.maxbuffersize
+- ivfflat.bgw
 
 New operator for `WHERE` clause in index scan:
 
@@ -31,7 +33,7 @@ vector_adv = (vector,int,float)
 0: ==
 -1: <
 -2: <=
--10: all passes
+-100: all passes
 ```
 
 Dropping a `WHERE` condition and only using instead the `<!>` operator in the `ORDER BY` will be significantly faster as less tuples have to be sorted and pushed into the database processing stream. Further, re-evaluation of distances for the `WHERE` clause will be skipped.

@@ -19,6 +19,7 @@ int 		ivfflat_gpu_batchsize;
 int 		ivfflat_gpu_prefetchsize;
 int			ivfflat_initbuffersize;
 int			ivfflat_maxbuffersize;
+bool 		ivfflat_bgw;
 
 static relopt_kind ivfflat_relopt_kind;
 
@@ -51,6 +52,9 @@ _PG_init(void)
 #ifdef XZ
 	DefineCustomBoolVariable("ivfflat.gpu", "Enable GPU",
 							NULL, &ivfflat_gpu,
+							false, PGC_USERSET, 0, NULL, NULL, NULL);
+	DefineCustomBoolVariable("ivfflat.bgw", "Enable GPU",
+							NULL, &ivfflat_bgw,
 							false, PGC_USERSET, 0, NULL, NULL, NULL);
 	DefineCustomIntVariable("ivfflat.gpu_batchsize", "GPU batch size",
 							"Should not exceed ivfflat.maxbuffersize", &ivfflat_gpu_batchsize,

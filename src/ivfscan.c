@@ -17,6 +17,8 @@
 
 #ifdef XZ
 #include "executor/executor.h"
+#include "gpuworker.h"
+#include "pgstat.h"
 #endif
 /*
  * Compare list distances
@@ -103,18 +105,6 @@ GetScanLists(IndexScanDesc scan, Datum value)
 }
 
 #ifdef XZ
-static int compare_pi(const void* a, const void* b) {
-	
-	const struct page_item *elem1 = a;    
-    const struct page_item *elem2 = b;
-
-   if (elem1->distance < elem2->distance)
-      return -1;
-   else if (elem1->distance > elem2->distance)
-      return 1;
-   else
-      return 0;
-}
 
 static void adjust_buffer(page_list* L, int n_new_elements) {
 	// Adjust buffer
@@ -305,11 +295,12 @@ GetScanItems(IndexScanDesc scan, Datum value, int op, float filterval)
 					}
 
 				} else {
-					double tmp = FunctionCall2Coll(so->procinfo, so->collation, datum, value);
+					double tmp = DatumGetFloat8(FunctionCall2Coll(so->procinfo, so->collation, datum, value));
+			
 					if(filter(tmp, filterval, op)) { 
 						adjust_buffer(L,1);
 						page_item* I = &L->data[L->length];
-						I->distance = DatumGetFloat8(tmp);
+						I->distance = (float) tmp;
 						I->ipd = itup->t_tid;
 						I->searchPage = (int) searchPage;
 						L->length++;
@@ -521,6 +512,14 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 	if (so->first)
 	{
+#ifdef XZ
+		worker_data_head* worker;
+		if (ivfflat_bgw) {
+			/* GPU background worker init*/
+			worker =  launch_dynamic_worker();
+		}
+#endif
+
 		Datum		value;
 
 		/* Safety check */
@@ -545,13 +544,128 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 			op = DatumGetInt32( GetAttributeByNum(t, 2, &isnull) ); 
 			filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
-			filter = filter*filter; // Squared because we use squared distance
+			
+			filter = filter*filter; // Squared because we use squared distance for gpu functions
+
 		} else {
 			op = -100;
 			filter = -1;
 		}
 
+#ifdef XZ
+		if (ivfflat_bgw) {
+			
+			/* Send task to GPU worker */
+			SpinLockAcquire(&worker->lock);
+				
+			if(!dlist_is_empty(&worker->free_list)) {
+				dlist_node* dnode = dlist_pop_head_node(&worker->free_list);
+				worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+
+				entry->probes = so->probes;
+				entry->op = op;
+				entry->filter = filter;
+				entry->nodeid = scan->indexRelation->rd_node;
+				
+				char* pos = entry->data;
+
+				// Copy vec to data
+				Vector* v = PointerGetDatum(value);
+				entry->vec_dim = v->dim;
+				memcpy(pos, v->x, v->dim*sizeof(float));
+				entry->vector = pos;
+				pos += v->dim*sizeof(float);
 	
+				// ToDo: Read TupDesc directly from relation in gpuworker !!!
+
+				// Copy tupledesc to data	
+				entry->tupdesc = pos;
+				memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att));		
+				pos += sizeof(*scan->indexRelation->rd_att);
+			
+				entry->tupdesc->attrs = pos;
+				pos += scan->indexRelation->rd_att->natts*sizeof(Form_pg_attribute);
+
+				for(int i = 0; i < scan->indexRelation->rd_att->natts; i++) {
+					entry->tupdesc->attrs[i] = pos;
+					memcpy(pos,scan->indexRelation->rd_att->attrs[i], scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute));
+					pos += sizeof(FormData_pg_attribute);
+				}
+				
+				// Set receiver
+				entry->notify_latch = MyLatch;
+			
+				// Push
+				dlist_push_tail(&worker->exec_list,&entry->node);
+			
+				SetLatch( worker->latch );
+			
+				SpinLockRelease(&worker->lock);
+		
+				// Wait for return
+				dlist_iter    iter;
+				bool got_signal = false;
+			
+				while(!got_signal)
+				{
+					SpinLockAcquire(&worker->lock);
+				
+					if (dlist_is_empty(&worker->return_list))
+					{
+						SpinLockRelease(&worker->lock);
+						int ev = WaitLatch(MyLatch,
+										WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+										1 * 1000L,
+										PG_WAIT_EXTENSION);
+						ResetLatch(MyLatch);
+						if (ev & WL_POSTMASTER_DEATH)
+							elog(FATAL, "unexpected postmaster dead");
+						
+						CHECK_FOR_INTERRUPTS();
+						continue;
+					}
+			
+					worker_exec_entry* ret;
+					dlist_foreach(iter, &worker->return_list) {
+						ret = dlist_container(worker_exec_entry, node, iter.cur);
+
+						if(ret->taskid == entry->taskid) {
+							got_signal = true;
+							dlist_delete(iter.cur);
+							break;
+						}
+					}
+
+					SpinLockRelease(&worker->lock);           
+				
+					if(got_signal) {
+						
+						long items = ret->probes;
+
+						page_list* L = &so->L;
+
+						adjust_buffer(L, (int) items); // <- Need to change to int
+
+						memcpy(L->data + (L->length)*sizeof(page_item),ret->data,items*sizeof(page_item));
+						L->length += items;
+
+						elog(WARNING,"[DEBUG] %d items received",items);
+
+						// Cleanup
+						SpinLockAcquire(&worker->lock);
+						dlist_push_tail(&worker->free_list,entry);           
+						SpinLockRelease(&worker->lock);              
+					}
+				}
+
+			} else {
+				SpinLockRelease(&worker->lock);
+				elog(ERROR,"No empty spot in gpu worker queue");
+			}
+		}
+#endif
+
+
 		if (so->normprocinfo != NULL)
 		{
 			/* No items will match if normalization fails */
@@ -559,8 +673,12 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 				return false;
 		}
 
-		IvfflatBench("GetScanLists", GetScanLists(scan, value));
-		IvfflatBench("GetScanItems", GetScanItems(scan, value, op, filter));
+		if (!ivfflat_bgw) {
+			
+			IvfflatBench("GetScanLists", GetScanLists(scan, value));
+			IvfflatBench("GetScanItems", GetScanItems(scan, value, op, filter));
+		}
+
 		so->first = false;
 
 		/* Clean up if we allocated a new value */		
