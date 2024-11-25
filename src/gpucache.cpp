@@ -1,3 +1,4 @@
+#define INIT_STORE_SIZE 100000
 
 #include <cstdio>
 #include <iostream>
@@ -34,7 +35,7 @@ class RelHashFunc {
         }
 };
 
-__inline__ float squared_eucl_dist(float* X, float* Y, int N) {
+__inline__ float squared_eucl_dist(const float* X, const float* Y, int N) {
     float D = (X[0] - Y[0])*(X[0] - Y[0]);
     for(int i = 1; i < N; i++) {
         D += (X[i] - Y[i])*(X[i] - Y[i]);
@@ -87,59 +88,88 @@ static void adjust_buffer(page_list* L, long n_new_elements) {
 
 
 class probe_entry {
-    float* vectors_gpu;   
-    unordered_map<long, item> vectors_cpu;
+    // Data
+    float* vectors_gpu = nullptr;   
+    float* vectors_cpu;
+    int* pages;
+    ItemPointerData* itdata;
+
+    long maxlength = INIT_STORE_SIZE;
+    long length = 0;
     
     public:
         int dim;
         float* probe;
+        
+        probe_entry(Vector* v) {
+            // Init
+            dim = v->dim;
+            probe = new float[v->dim];
+            memcpy(probe,v->x,v->dim*sizeof(float));
 
+            vectors_cpu = (float*) malloc(INIT_STORE_SIZE*dim*sizeof(float));
+            pages = (int*) malloc(INIT_STORE_SIZE*sizeof(int));
+            itdata = (ItemPointerData*) malloc(INIT_STORE_SIZE*sizeof(ItemPointerData));
+        } 
+        
         void insert_vector(Vector* v, int page, ItemPointerData ipd) {
-            item I;
-            I.vector = new float[v->dim];
-            I.page = page;
-            I.ipd = ipd;
+            if(maxlength - length == 0)  {
+                // Enlarge storage 
+                maxlength *= 1.5;
+                vectors_cpu = (float*) realloc(vectors_cpu, maxlength*dim*sizeof(float));
+                pages = (int*) realloc(pages, maxlength*sizeof(int));
+                itdata = (ItemPointerData*) realloc(itdata, maxlength*sizeof(ItemPointerData));
+            } 
 
-            memcpy(I.vector, v->x, v->dim*sizeof(float));
-            
-            vectors_cpu[vectors_cpu.size()] = I;
+            memcpy(&vectors_cpu[dim*length], v->x, v->dim*sizeof(float));
+            pages[length] = page;
+            itdata[length] = ipd;
+    
+            length++;
         }
  
         long size() {
-            return vectors_cpu.size();
+            return length;
         }
         
-        const item* getItemData(long idx) {
-            return &vectors_cpu[idx];
+        const float* getVectorCPU(long idx) {
+            return &vectors_cpu[idx*dim];
+        }
+        
+        float* getAllVectorsCPU() {
+            return vectors_cpu;
+        }
+        
+        const int getPage(long idx) {
+            return pages[idx];
         }
 
-        float* getGPUdata() {
+        const ItemPointerData getItemPointerData(long idx) {
+            return itdata[idx];
+        }
+
+        float* getAllVectorsGPU() {
             return vectors_gpu; 
         }
 
         void storeOnGPU() {
             if(vectors_gpu == nullptr) {
                 // Init ordinary cuda memory
-                init_gpu_memory((void**) &vectors_gpu, size() * dim * sizeof(float) );
+                init_gpu_memory((void**) &vectors_gpu, length * dim * sizeof(float) );
                 
                 // Copy
-                for(long i = 0; i < size(); i++) {
-                    item I = vectors_cpu[i];
-                    copy_memory_to_gpu(&vectors_gpu[i*dim], I.vector, dim*sizeof(float));
-                }
+                copy_memory_to_gpu(vectors_gpu, vectors_cpu, length*dim*sizeof(float));
             }
         }
 
         ~probe_entry() {
             delete[] probe;
+            free(vectors_cpu);
+            free(pages);
+            free(itdata);
             if(vectors_gpu != nullptr) {
                 free_gpu_memory(vectors_gpu);
             }
-            
-            for(auto &it : vectors_cpu) {
-                delete vectors_cpu[it.first].vector;
-            }
-            
         }   
 };
 
@@ -148,11 +178,8 @@ class probes {
     public:
           
         int insert(Vector* in) {
-            probe_entry *PE = new probe_entry();
-            PE->dim = in->dim;
-            PE->probe = new float[in->dim];
-            memcpy(PE->probe,in->x,in->dim*sizeof(float));
-
+            probe_entry *PE = new probe_entry(in);
+            
             PROBES.push_back( PE );    
 
             return PROBES.size()-1;
@@ -282,9 +309,9 @@ page_list exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* 
     vector<int> idx = P->get_ordered_probes_idx(q);
     
     page_list RET;
-    RET.data = (page_item*) malloc(sizeof(page_item) * 100000);
+    RET.data = (page_item*) malloc(sizeof(page_item) * INIT_STORE_SIZE);
     RET.length = 0;
-    RET.max_length = 100000;
+    RET.max_length = INIT_STORE_SIZE;
 
     for(int i = 0; i < min(idx.size(), (size_t) Np); i++) {
         // Get entry
@@ -295,8 +322,7 @@ page_list exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* 
         
         // Loop over vectors    
         for(long j = 0; j < L; j++) {
-            const item *D_I = E->getItemData(j);
-            float dist = squared_eucl_dist(q,D_I->vector,dim);
+            float dist = squared_eucl_dist(q, E->getVectorCPU(j),dim);
 
             // Filter
             if(!filter_func(dist,filter,op))
@@ -305,8 +331,8 @@ page_list exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* 
             // Build return item
             page_item* I = &RET.data[RET.length];
 			I->distance = dist;
-            I->ipd = D_I->ipd;
-			I->searchPage = D_I->page;
+            I->ipd = E->getItemPointerData(j);
+			I->searchPage = E->getPage(j);
 			RET.length++;
         }
     }
@@ -326,62 +352,130 @@ page_list exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* 
 
     vector<int> idx = P->get_ordered_probes_idx(q);
     
+    /*
+    cout << "[DEBUG] Probes (idx): ";
+    for(int i = 0; i < idx.size(); i++) {
+        cout << idx[i] << ",";
+    }
+    cout << endl;
+    */
+
+    Np = min(idx.size(), (size_t) Np);
+
     page_list RET;
-    RET.data = (page_item*) malloc(sizeof(page_item) * 100000);
+    RET.data = (page_item*) malloc(sizeof(page_item) * INIT_STORE_SIZE);
     RET.length = 0;
-    RET.max_length = 100000;
+    RET.max_length = INIT_STORE_SIZE;
 
     // Store query vector on GPU
     float* d_q;
     init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
     copy_memory_to_gpu(d_q, q, dim*sizeof(float));
-
-    for(int i = 0; i < min(idx.size(), (size_t) Np); i++) {
+    
+    int L = 0;
+    // Prepare for all probes at once
+    for(int i = 0; i < Np; i++) {
         // Get entry
         probe_entry* E = P->get(idx[i]);
-        
+    
         // Store data on gpu if not stored yet
         E->storeOnGPU();
 
-        long L = E->size();
-          
-        float* d_r;
-        init_gpu_memory((void**) &d_r, L*sizeof(float) );
-   
-        // Calc distances
-        calc_squared_distances_gpu_euclidean_nosharedmem(E->getGPUdata(), d_q, d_r, L, dim);
+        L += E->size();
+    }
+
+
+
+    // pointer to on device distance results
+    sort_item* d_r;
+    init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );
     
-        // Copy back
-        float* d_r_cpu = (float*) malloc(L*sizeof(float));
-        copy_memory_to_cpu(d_r_cpu, d_r, L*sizeof(float));
-        free_gpu_memory(d_r);
+    // pointer to active position
+    int a = 0;
+    int* d_a; 
+    init_gpu_memory((void**) &d_a, sizeof(int) );
+    copy_memory_to_gpu(d_a, &a, sizeof(int));
 
-        adjust_buffer(&RET, L);
-
-        // Build
-        for(long j = 0; j < L; j++) {
-            const item *D_I = E->getItemData(j);
+    L = 0;
+    for(int i = 0; i < Np; i++) {
+        // Get entry
+        probe_entry* E = P->get(idx[i]);
+        int Ll = E->size();
         
-            // Filter
-            if(!filter_func(d_r_cpu[j],filter,op))
-                continue;
+        // Calc distances
+        //calc_squared_distances_gpu_euclidean_nosharedmem(E->getAllVectorsGPU(), d_q, &d_r[L], Ll, dim);
+       
+        // Calc distances + filter
+        calc_squared_distances_gpu_euclidean_wsfilter(E->getAllVectorsGPU(), d_q, d_r, filter, d_a, Ll, dim, i); 
 
+        L += Ll;
+    }
+
+    // Copy back 
+    /*
+    float* d_r_cpu = (float*) malloc(L*sizeof(float));
+    copy_memory_to_cpu(d_r_cpu, d_r, L*sizeof(float));
+
+    adjust_buffer(&RET, L);
+
+    */
+   
+    // pos index
+    copy_memory_to_cpu(&a, d_a, sizeof(int));
+   
+    // Sort on GPU
+    sort_item_array_gpu(d_r, a); 
+
+    sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));
+    copy_memory_to_cpu(d_r_cpu, d_r, a*sizeof(sort_item));
+
+    adjust_buffer(&RET, a);
+
+    for(int i = 0; i < a; i++) {
+        probe_entry* E = P->get( idx[ d_r_cpu[i].probe]  );
+        // Build return item
+        // ToDo: Put directly into return feed ...
+        page_item* I = &RET.data[RET.length];
+        I->distance = d_r_cpu[i].distance;
+        I->ipd = E->getItemPointerData( d_r_cpu[i].pos );
+        I->searchPage = E->getPage( d_r_cpu[i].pos );
+        RET.length++;   
+    }
+
+/*
+    // Build
+    L = 0;
+    for(int i = 0; i < min(idx.size(), (size_t) Np); i++) {
+        probe_entry* E = P->get(idx[i]);
+        int Ll = E->size();
+        
+        for(int j = 0; j < Ll; j++) {
+            //cout << "i: " << i << " j: " << j << " - " << d_r_cpu[L+j] << " vs " << squared_eucl_dist(q, E->getVectorCPU(j),dim) << endl;
+    
+            // Filter
+            if(!filter_func(d_r_cpu[L+j],filter,op))
+                continue;
+    
             // Build return item
             page_item* I = &RET.data[RET.length];
-			I->distance = d_r_cpu[j];
-            I->ipd = D_I->ipd;
-			I->searchPage = D_I->page;
-			RET.length++;
+            I->distance = d_r_cpu[L+j];
+            I->ipd = E->getItemPointerData(j);
+            I->searchPage = E->getPage(j);
+            RET.length++;    
         }
-
-        free(d_r_cpu);
+        L += Ll;
     }
-    
+*/
+
+    free_gpu_memory(d_a);
+
     // Cleanup
+    free(d_r_cpu);
     free_gpu_memory(d_q);
-    
+    free_gpu_memory(d_r);
+
     // Sort
-    qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
+    //qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
 
     return RET;
 }

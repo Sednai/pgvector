@@ -1,7 +1,6 @@
 #include "storage/relfilenode.h"
 
 struct item {
-    float* vector;
 	int page;
     ItemPointerData ipd;
 };

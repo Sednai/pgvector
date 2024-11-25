@@ -649,7 +649,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 						memcpy(L->data + (L->length)*sizeof(page_item),ret->data,items*sizeof(page_item));
 						L->length += items;
 
-						elog(WARNING,"[DEBUG] %d items received",items);
+						//elog(WARNING,"[DEBUG] %d items received",items);
 
 						// Cleanup
 						SpinLockAcquire(&worker->lock);

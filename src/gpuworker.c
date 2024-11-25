@@ -235,7 +235,7 @@ pgv_gpuworker_main(Datum main_arg)
 
         load_index(entry->nodeid, entry->tupdesc);
 
-//        logsize();
+        logsize();
     
         // Compute
         //page_list L = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
