@@ -54,7 +54,7 @@ extern "C" void calc_squared_distances_gpu_euclidean(float* M, float* V, float* 
 extern "C" void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);    
 extern "C" void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float* C, int N, int L);
 extern "C" void calc_squared_distances_gpu_euclidean_nosharedmem_test(float* M, float* V, float* C, int N, int L);
-extern "C" void calc_squared_distances_gpu_euclidean_wsfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe);
+extern "C" void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op);
 extern "C" void sort_array_gpu(page_item* P, int N);
 extern "C" void sort_item_array_gpu(sort_item* P, int N);
 #else
@@ -73,7 +73,7 @@ extern void calc_squared_distances_gpu_euclidean(float* M, float* V, float* C, i
 extern void calc_squared_distances_gpu_euclidean_mod(float* M, float* V, float V2s, float* C, int N, int L);
 extern void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float* C, int N, int L);
 extern void calc_squared_distances_gpu_euclidean_nosharedmem_test(float* M, float* V, float* C, int N, int L);
-extern void calc_squared_distances_gpu_euclidean_wsfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe);
+extern void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op);
 extern void sort_array_gpu(page_item* P, int N);
 extern void sort_item_array_gpu(sort_item* P, int N);
 

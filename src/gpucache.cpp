@@ -408,7 +408,7 @@ int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int
         //calc_squared_distances_gpu_euclidean_nosharedmem(E->getAllVectorsGPU(), d_q, &d_r[L], Ll, dim);
        
         // Calc distances + filter
-        calc_squared_distances_gpu_euclidean_wsfilter(E->getAllVectorsGPU(), d_q, d_r, filter, d_a, Ll, dim, i); 
+        calc_squared_distances_gpu_euclidean_wfilter(E->getAllVectorsGPU(), d_q, d_r, filter, d_a, Ll, dim, i, op); 
 
         L += Ll;
     }

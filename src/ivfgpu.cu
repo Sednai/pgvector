@@ -68,6 +68,28 @@ __global__ void calc_squared_euclidean_distances_v0c(float* M, float* V, float* 
     }
 }
 
+__global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_item* C, int N, int L, int probe) {
+    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int stridex = blockDim.x*gridDim.x;
+    unsigned int k;
+
+    __shared__ float VL[THREADS_PER_BLOCK];
+    if(threadIdx.x < L)
+        VL[threadIdx.x] = V[threadIdx.x];
+    
+    __syncthreads();
+    
+    for(k=indexx; k < N; k += stridex) {
+        float tmp = (M[L*k] - VL[0])*(M[L*k] - VL[0]);
+        for(int i = 1; i < L; i++) {
+            tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
+        }
+        C[k].distance = tmp;
+        C[k].probe = probe;
+        C[k].pos = k;
+    }
+}
+
 /*
     Squared euclidean distances with < filter
     v0: N/stridex vec per thread
@@ -88,7 +110,7 @@ __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V,
         for(int i = 0; i < L; i++) {
             tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
         }
-        if(tmp < f) {
+        if( tmp < f ) {
             int pos = atomicAdd(p,1);
             C[pos].distance = tmp;
             C[pos].probe = probe;
@@ -96,6 +118,123 @@ __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V,
         }
     }
 }
+
+/*
+    Squared euclidean distances with <= filter
+    v0: N/stridex vec per thread
+*/
+__global__ void calc_squared_euclidean_distances_wseqfilter_v0(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
+    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int stridex = blockDim.x*gridDim.x;
+    unsigned int k;
+
+    __shared__ float VL[THREADS_PER_BLOCK];
+    if(threadIdx.x < L)
+        VL[threadIdx.x] = V[threadIdx.x];
+    
+    __syncthreads();
+    
+    for(k=indexx; k < N; k += stridex) {
+        float tmp = 0;
+        for(int i = 0; i < L; i++) {
+            tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
+        }
+        if( tmp <= f ) {
+            int pos = atomicAdd(p,1);
+            C[pos].distance = tmp;
+            C[pos].probe = probe;
+            C[pos].pos = k;
+        }
+    }
+}
+
+/*
+    Squared euclidean distances with = filter
+    v0: N/stridex vec per thread
+*/
+__global__ void calc_squared_euclidean_distances_weqfilter_v0(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
+    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int stridex = blockDim.x*gridDim.x;
+    unsigned int k;
+
+    __shared__ float VL[THREADS_PER_BLOCK];
+    if(threadIdx.x < L)
+        VL[threadIdx.x] = V[threadIdx.x];
+    
+    __syncthreads();
+    
+    for(k=indexx; k < N; k += stridex) {
+        float tmp = 0;
+        for(int i = 0; i < L; i++) {
+            tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
+        }
+        if( tmp == f ) {
+            int pos = atomicAdd(p,1);
+            C[pos].distance = tmp;
+            C[pos].probe = probe;
+            C[pos].pos = k;
+        }
+    }
+}
+
+/*
+    Squared euclidean distances with > filter
+    v0: N/stridex vec per thread
+*/
+__global__ void calc_squared_euclidean_distances_wlfilter_v0(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
+    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int stridex = blockDim.x*gridDim.x;
+    unsigned int k;
+
+    __shared__ float VL[THREADS_PER_BLOCK];
+    if(threadIdx.x < L)
+        VL[threadIdx.x] = V[threadIdx.x];
+    
+    __syncthreads();
+    
+    for(k=indexx; k < N; k += stridex) {
+        float tmp = 0;
+        for(int i = 0; i < L; i++) {
+            tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
+        }
+        if( tmp > f ) {
+            int pos = atomicAdd(p,1);
+            C[pos].distance = tmp;
+            C[pos].probe = probe;
+            C[pos].pos = k;
+        }
+    }
+}
+
+/*
+    Squared euclidean distances with > filter
+    v0: N/stridex vec per thread
+*/
+__global__ void calc_squared_euclidean_distances_wleqfilter_v0(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
+    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
+    unsigned int stridex = blockDim.x*gridDim.x;
+    unsigned int k;
+
+    __shared__ float VL[THREADS_PER_BLOCK];
+    if(threadIdx.x < L)
+        VL[threadIdx.x] = V[threadIdx.x];
+    
+    __syncthreads();
+    
+    for(k=indexx; k < N; k += stridex) {
+        float tmp = 0;
+        for(int i = 0; i < L; i++) {
+            tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
+        }
+        if( tmp >= f ) {
+            int pos = atomicAdd(p,1);
+            C[pos].distance = tmp;
+            C[pos].probe = probe;
+            C[pos].pos = k;
+        }
+    }
+}
+
 
 
 /*
@@ -269,10 +408,33 @@ void calc_squared_distances_gpu_euclidean_nosharedmem_test(float* M, float* V, f
 /*
     Calc euclidean distances and apply < filter
 */
-void calc_squared_distances_gpu_euclidean_wsfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
+void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op) {
+    
+    
+    int NB = (N-1+THREADS_PER_BLOCK)/THREADS_PER_BLOCK;
 
     // Calc distance + filter
-    calc_squared_euclidean_distances_wsfilter_v0<<<(N-1+THREADS_PER_BLOCK)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+    switch(op) {
+        case 0:
+            calc_squared_euclidean_distances_weqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+            break;
+        case -1:
+            calc_squared_euclidean_distances_wsfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+            break;
+        case 1:
+            calc_squared_euclidean_distances_wlfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+            break;
+        case -2:
+            calc_squared_euclidean_distances_wseqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+            break;
+       case 2:
+            calc_squared_euclidean_distances_wleqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
+            break;
+        default:
+            cudaMemcpy(p,&N, sizeof(int), cudaMemcpyHostToDevice);
+            calc_squared_euclidean_distances_v0d<<<NB,THREADS_PER_BLOCK>>>(M, V, C, N, L, probe);
+    }
+       
 }
 
 

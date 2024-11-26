@@ -33,14 +33,14 @@ vector_adv = (vector,int,float)
 0: ==
 -1: <
 -2: <=
--100: all passes
+-100: no filter
 ```
 
 Dropping a `WHERE` condition and only using instead the `<!>` operator in the `ORDER BY` will be significantly faster as less tuples have to be sorted and pushed into the database processing stream. Further, re-evaluation of distances for the `WHERE` clause will be skipped.
 
 Note the following known current limitations of bgw:
 - No active memory management.
-- Return result set size limited by shared memory queue element data buffer size (set at compile time)
+- Return result set size limited by shared memory queue element data buffer size (set at compile time, max items: `MAX_DATA/16`)
 - `max_parallel_workers_per_gather` has to be set to 1 ! (otherwise double counting)
 - Max vector dim set to 1024
 
