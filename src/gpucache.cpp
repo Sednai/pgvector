@@ -344,7 +344,9 @@ page_list exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* 
 }
 
 
-page_list exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim) {
+//page_list exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data) {
+int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data) {
+
     Relation R = {node};
     
     // Get probes for relation
@@ -429,17 +431,19 @@ page_list exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* 
     sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));
     copy_memory_to_cpu(d_r_cpu, d_r, a*sizeof(sort_item));
 
-    adjust_buffer(&RET, a);
+    //adjust_buffer(&RET, a);
 
     for(int i = 0; i < a; i++) {
         probe_entry* E = P->get( idx[ d_r_cpu[i].probe]  );
         // Build return item
         // ToDo: Put directly into return feed ...
-        page_item* I = &RET.data[RET.length];
+        //page_item* I = &RET.data[RET.length];
+        page_item* I = &((page_item*) return_data)[i];
+
         I->distance = d_r_cpu[i].distance;
         I->ipd = E->getItemPointerData( d_r_cpu[i].pos );
         I->searchPage = E->getPage( d_r_cpu[i].pos );
-        RET.length++;   
+        //RET.length++;   
     }
 
 /*
@@ -477,5 +481,6 @@ page_list exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* 
     // Sort
     //qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
 
-    return RET;
+    //return RET;
+    return a;
 }

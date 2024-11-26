@@ -239,18 +239,21 @@ pgv_gpuworker_main(Datum main_arg)
     
         // Compute
         //page_list L = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
-        page_list L = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
+        //page_list L = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
+        entry->probes = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
 
         //elog(WARNING,"[DEBUG]: items before %ld",L.length);
 
         // Return
         // ToDo: CUT into pieces if too long ...
+        
+        /*
         entry->probes = (int) L.length;
       
         memcpy(entry->data,L.data,L.length*sizeof(page_item));
       
         free(L.data);
-        
+        */
 	    SpinLockAcquire(&worker_head->lock);
 		dlist_push_tail(&worker_head->return_list,&entry->node);
   		SpinLockRelease(&worker_head->lock);
