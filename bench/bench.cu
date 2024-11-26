@@ -109,7 +109,7 @@ int main() {
     for(int c = 0; c < reps; c++) { 
         tic = std::chrono::system_clock::now();
         
-        calc_squared_distances_gpu_euclidean_nosharedmem_test(d_V, d_C, d_R, N, dim); 
+        calc_squared_distances_gpu_euclidean_nosharedmem(d_V, d_C, d_R, N, dim); 
 
         toc = std::chrono::system_clock::now();
         float tmp = std::chrono::duration_cast<std::chrono::microseconds>(toc-tic).count();
