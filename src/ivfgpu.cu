@@ -4,19 +4,6 @@
 
 #define THREADS_PER_BLOCK 1024
 
-__global__ void calc_euclidean_distances_v0(float* M, float* V, float* C, int N, int L) {
-    int row = blockIdx.x*blockDim.x+threadIdx.x;
-
-    if(row < N) {
-        float tmp = 0;
-        float tmp2;
-        for(int i = 0; i < L; i++) {
-            tmp2 = M[L*row+i] - V[i];
-            tmp += tmp2*tmp2;
-        }
-        C[row] = sqrt(tmp);
-    }
-}
 
 __global__ void calc_euclidean_distances_v1(float* M, float* V, float* C, int N, int L) {
     unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -81,6 +68,10 @@ __global__ void calc_squared_euclidean_distances_v0c(float* M, float* V, float* 
     }
 }
 
+/*
+    Squared euclidean distances with < filter
+    v0: N/stridex vec per thread
+*/
 __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe) {
     unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
     unsigned int stridex = blockDim.x*gridDim.x;
@@ -93,8 +84,8 @@ __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V,
     __syncthreads();
     
     for(k=indexx; k < N; k += stridex) {
-        float tmp = (M[L*k] - VL[0])*(M[L*k] - VL[0]);
-        for(int i = 1; i < L; i++) {
+        float tmp = 0;
+        for(int i = 0; i < L; i++) {
             tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
         }
         if(tmp < f) {
@@ -107,25 +98,47 @@ __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V,
 }
 
 
+/*
+    Squared euclidean distances
+    v1: N/gridDim vec per block
+*/
+__global__ void calc_squared_euclidean_distances_v1(float* M, float* V, float* C, const float f, int* p, int N, int L, int probe) {
+    unsigned int v;
 
-__global__ void calc_squared_euclidean_distances_v1(float* M, float* V, float* C, int N, int L) {
-    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
-    unsigned int stridex = blockDim.x*gridDim.x;
-    
-    unsigned int indexy = blockIdx.y*blockDim.y + threadIdx.y;
-    unsigned int stridey = blockDim.y*gridDim.y;
+    __shared__ float STORE[THREADS_PER_BLOCK];
 
-    unsigned int x,y;
+    // Loop over vectors
+    for(v = blockIdx.x; v < N; v += gridDim.x) {
 
-    for(x = indexx; x < N; x += stridex) {
-        float tmp = 0;
-        for(y = indexy; y < L; y += stridey) {
-            tmp += (M[L*x+y] - V[y]) * (M[L*x+y] - V[y]);
+        int vecstart = L*v;
+        int vecend = vecstart + L;
+
+        // Pre-aggregate for block
+        for(int i = threadIdx.x; i < THREADS_PER_BLOCK; i += blockDim.x) {
+            float sum = 0;
+
+            for(int pos = vecstart + i; pos < vecend; pos += THREADS_PER_BLOCK)
+                sum += (M[pos] - V[pos-vecstart] )*(M[pos] - V[pos-vecstart] );  
+
+            STORE[i] = sum;
         }
+        
+        // Tree like reduction    
+        for(int stride = THREADS_PER_BLOCK / 2; stride > 0; stride >>=1) {
+            __syncthreads();
+            for(int i = threadIdx.x; i < stride; i += blockDim.x) {
+                STORE[i] += STORE[stride+i];
+            }
+        }
+        
+        __syncthreads();
 
-        atomicAdd(&C[x],tmp);
+        if( threadIdx.x == 0) 
+            C[v] = STORE[0];
+
     }
 }
+
 
 __global__ void calc_squared_euclidean_distances_v2(float* M, float* V, float* C, int N, int L) {
     unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -162,19 +175,6 @@ __global__ void apply_sqrt(float* C, int N) {
 
     for(int x = indexx; x < N; x += stridex) {
         C[x] = sqrt(C[x]);
-    }
-}
-
-__global__ void apply_sqrt_with_seq_filter(float* C, float filter, int N) {
-    unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
-    unsigned int stridex = blockDim.x*gridDim.x;
-
-    for(int x = indexx; x < N; x += stridex) {
-        float tmp = (C[x]);
-        if( tmp <= filter) 
-            C[x] = tmp;
-        else
-            C[x] = -1;
     }
 }
 
@@ -234,7 +234,6 @@ void synchronize_gpu() {
 
 void calc_distances_gpu_euclidean(float* M, float* V, float* C, int N, int L) {
     
-    //calc_euclidean_distances_v0<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
     //calc_euclidean_distances_v1<<<1024,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
     //calc_euclidean_distances_v1<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);   
     
@@ -255,6 +254,17 @@ void calc_squared_distances_gpu_euclidean_nosharedmem(float* M, float* V, float*
     
     calc_squared_euclidean_distances_v0c<<<(N-1+THREADS_PER_BLOCK)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(M, V, C, N, L);    
 }
+
+void calc_squared_distances_gpu_euclidean_nosharedmem_test(float* M, float* V, float* C, int N, int L) {
+    
+    /*
+    dim3 DimGrid(1024, 2); 
+    dim3 DimBlock(32, 32); 
+    */
+    //nullify<<<(N+THREADS_PER_BLOCK+1)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(C, N);    
+    calc_squared_euclidean_distances_v1<<<128,THREADS_PER_BLOCK>>>(M, V, C, 0, 0,  N, L, 0);   
+}
+
 
 /*
     Calc euclidean distances and apply < filter

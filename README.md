@@ -42,7 +42,7 @@ Note the following known current limitations of bgw:
 - No active memory management.
 - Return result set size limited by shared memory queue element data buffer size (set at compile time)
 - `max_parallel_workers_per_gather` has to be set to 1 ! (otherwise double counting)
-
+- Max vector dim set to 1024
 
 # pgvector
 
