@@ -28,6 +28,7 @@ typedef struct
     dlist_head free_list;
     dlist_head return_list;
     Latch *latch;
+    pid_t pid;
     worker_exec_entry list_data[MAX_QUEUE_LENGTH];
 } worker_data_head;
 

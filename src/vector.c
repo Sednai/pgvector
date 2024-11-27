@@ -15,6 +15,7 @@
 #ifdef XZ
 #include "ivfflat.h"
 #include "executor/executor.h"
+#include "gpuworker.h"
 #endif
 
 #if PG_VERSION_NUM >= 120000
@@ -842,3 +843,40 @@ vector_cmp(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT32(vector_cmp_internal(a, b));
 }
+
+#ifdef XZ
+PG_FUNCTION_INFO_V1(kill_pgv_worker);
+Datum
+kill_pgv_worker(PG_FUNCTION_ARGS) {
+   
+    // Get global data structure
+    char buf[BGW_MAXLEN];
+    snprintf(buf, BGW_MAXLEN, "pgv_gpuworker"); 
+        
+    bool found = false;
+    worker_data_head* worker_head = ShmemInitStruct(buf,
+                                sizeof(worker_data_head),
+                                &found);
+    if(!found) {
+        elog(ERROR,"Can not kill worker if not started yet (shared mem blank)");
+    }
+    
+    SpinLockAcquire(&worker_head->lock);
+    
+    int ret = 0;
+    if(worker_head->pid != 0) {
+        int err = kill( worker_head->pid, SIGTERM);
+        if(err == 0) {
+            ret +=1;
+            worker_head->pid = 0;
+        } else 
+            elog(ERROR,"Worker with pid %d could not be killed (%d)",worker_head->pid,err);        
+    } else 
+        elog(ERROR,"Worker with invalid pid. Already killed?");       
+
+    SpinLockRelease(&worker_head->lock);   
+    
+    PG_RETURN_INT32(ret);
+}
+
+#endif

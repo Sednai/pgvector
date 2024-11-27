@@ -278,3 +278,6 @@ CREATE OPERATOR CLASS vector_l2_ops
 	OPERATOR 2 <!> (vector, vector_adv) FOR ORDER BY float_ops,
 	FUNCTION 1 vector_l2_squared_distance(vector, vector),
 	FUNCTION 3 l2_distance(vector, vector);
+
+CREATE FUNCTION kill_pgv_worker() RETURNS int`
+	AS 'MODULE_PATHNAME' LANGUAGE C;

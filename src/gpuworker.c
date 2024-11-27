@@ -44,7 +44,7 @@ launch_dynamic_worker()
 	
     SpinLockAcquire(&worker_head->lock);
 
-    if (found) {
+    if (found && worker_head->pid != 0) {
         SpinLockRelease(&worker_head->lock);
     	return worker_head;
     }
@@ -192,6 +192,7 @@ pgv_gpuworker_main(Datum main_arg)
 	
 	SpinLockAcquire(&worker_head->lock); 
 	worker_head->latch = MyLatch;
+    worker_head->pid = MyProcPid;
     SpinLockRelease(&worker_head->lock);
 
 	/* Establish signal handlers before unblocking signals. */

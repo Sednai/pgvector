@@ -1,10 +1,10 @@
 # Experimental modifications in ivfflat:
 
-- PG tuplesort replaced with plain qsort
+- PG tuplesort replaced with plain qsort (for cpu version)
 - Where clause directly during index scan
-- Index distance calculations on GPU (currently always euclidean is used)
+- Index distance calculations on GPU (currently always euclidean metric is used)
 - Sort on GPU
-- Experimental background worker process (in order to keep index in memory, gpu only and only euclidean metric is used)
+- GPU background worker process (in order to keep index in gpu memory (currently always euclidean metric is used))
 
 New settings:
 - ivfflat.gpu 
@@ -43,6 +43,11 @@ Note the following known current limitations of bgw:
 - Return result set size limited by shared memory queue element data buffer size (set at compile time, max items: `MAX_DATA/16`)
 - `max_parallel_workers_per_gather` has to be set to 1 ! (otherwise double counting)
 - Max vector dim set to 1024
+ 
+Note that bgw worker can be killed via `select kill_pgv_worker()` (needs to be executed directly on datanodes). This is currently the only way to release again the gpu memory.
+
+Using bgw with `<!>` operator will be dramatically faster as filter is applied on gpu during distance calculation, and only hits will be transfered back to cpu. 
+
 
 # pgvector
 

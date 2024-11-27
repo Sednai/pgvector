@@ -427,7 +427,7 @@ void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item*
         case -2:
             calc_squared_euclidean_distances_wseqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
             break;
-       case 2:
+        case 2:
             calc_squared_euclidean_distances_wleqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
             break;
         default:
