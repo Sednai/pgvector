@@ -239,10 +239,11 @@ pgv_gpuworker_main(Datum main_arg)
         logsize();
     
         // Compute
-        //page_list L = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
-        //page_list L = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
         entry->probes = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
 
+        //page_list L = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
+        //page_list L = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim);
+      
         //elog(WARNING,"[DEBUG]: items before %ld",L.length);
 
         // Return

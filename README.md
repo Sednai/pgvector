@@ -48,6 +48,10 @@ Note that bgw worker can be killed via `select kill_pgv_worker()` (needs to be e
 
 Using bgw with `<!>` operator will be dramatically faster as filter is applied on gpu during distance calculation, and only hits will be transfered back to cpu. 
 
+Installation:
+
+Build `src/ivfgpu.cu` with `nvcc`, run `make`, and re-build `vector.so` with `nvcc`. 
+
 
 # pgvector
 
