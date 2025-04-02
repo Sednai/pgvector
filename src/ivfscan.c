@@ -415,7 +415,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		entry->notify_latch = MyLatch;
 		entry->nodeid = scan->indexRelation->rd_node;
 		entry->probes = so->probes;
-				
+		entry->usegpu = ivfflat_gpu;
 		char* pos = entry->data;
 
 		// Copy vec to data

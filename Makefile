@@ -31,6 +31,7 @@ endif
 # For auto-vectorization:
 # - GCC (needs -ftree-vectorize OR -O3) - https://gcc.gnu.org/projects/tree-ssa/vectorization.html
 # - Clang (could use pragma instead) - https://llvm.org/docs/Vectorizers.html
+
 # AERO change
 PG_CFLAGS += $(OPTFLAGS) -ftree-vectorize -fassociative-math -fno-signed-zeros -fno-trapping-math -DAERO -g
 PG_CPPFLAGS += -DAERO -g
@@ -58,6 +59,14 @@ endif
 # for Postgres < 15
 PROVE_FLAGS += -I ./test/perl
 
+# AERO
+aero:	all
+	g++ $(PG_CPPFLAGS) -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/gpucache.o
+gpu:	all
+	nvcc $(PG_CPPFLAGS) -I$(includedir_server)  --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
+	nvcc $(PG_CPPFLAGS) -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o	
+
+
 prove_installcheck:
 	rm -rf $(CURDIR)/tmp_check
 	cd $(srcdir) && TESTDIR='$(CURDIR)' PATH="$(bindir):$$PATH" PGPORT='6$(DEF_PGPORT)' PG_REGRESS='$(top_builddir)/src/test/regress/pg_regress' $(PROVE) $(PG_PROVE_FLAGS) $(PROVE_FLAGS) $(if $(PROVE_TESTS),$(PROVE_TESTS),test/t/*.pl)
@@ -80,3 +89,4 @@ docker:
 
 docker-release:
 	docker buildx build --push --pull --no-cache --platform linux/amd64,linux/arm64 --build-arg PG_MAJOR=$(PG_MAJOR) -t pgvector/pgvector:pg$(PG_MAJOR) -t pgvector/pgvector:$(EXTVERSION)-pg$(PG_MAJOR) .
+
