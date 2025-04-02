@@ -29,10 +29,19 @@ CREATE TYPE vector (
 	STORAGE   = external
 );
 
+-- AERO BEGIN
+CREATE TYPE vector_adv as (vec vector, op int, condval float4);
+-- AERO END
+
 -- vector functions
 
 CREATE FUNCTION l2_distance(vector, vector) RETURNS float8
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+-- AERO BEGIN
+CREATE FUNCTION l2_distance_adv(vector, vector_adv) RETURNS float8
+	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+-- AERO END
 
 CREATE FUNCTION inner_product(vector, vector) RETURNS float8
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
@@ -245,6 +254,13 @@ CREATE OPERATOR > (
 	RESTRICT = scalargtsel, JOIN = scalargtjoinsel
 );
 
+-- AERO BEGIN
+CREATE OPERATOR <!> (
+	LEFTARG = vector, RIGHTARG = vector_adv, PROCEDURE = l2_distance_adv,
+	COMMUTATOR = '<!>'
+);
+-- AERO END
+
 -- access methods
 
 CREATE FUNCTION ivfflathandler(internal) RETURNS index_am_handler
@@ -292,6 +308,9 @@ CREATE OPERATOR CLASS vector_ops
 CREATE OPERATOR CLASS vector_l2_ops
 	DEFAULT FOR TYPE vector USING ivfflat AS
 	OPERATOR 1 <-> (vector, vector) FOR ORDER BY float_ops,
+-- AERO BEGIN
+	OPERATOR 2 <!> (vector, vector_adv) FOR ORDER BY float_ops,
+-- AERO END
 	FUNCTION 1 vector_l2_squared_distance(vector, vector),
 	FUNCTION 3 l2_distance(vector, vector);
 
@@ -916,3 +935,8 @@ CREATE OPERATOR CLASS sparsevec_l1_ops
 	OPERATOR 1 <+> (sparsevec, sparsevec) FOR ORDER BY float_ops,
 	FUNCTION 1 l1_distance(sparsevec, sparsevec),
 	FUNCTION 3 hnsw_sparsevec_support(internal);
+
+-- AERO
+
+CREATE FUNCTION kill_pgv_worker() RETURNS int
+	AS 'MODULE_PATHNAME' LANGUAGE C;

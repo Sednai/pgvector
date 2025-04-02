@@ -1,3 +1,13 @@
+# Experimental AERO modifications in ivfflat:
+
+- GPU background worker process (keeping index in gpu memory)
+- Where clause directly during index scan
+- Index distance calculations, filtering and sort on GPU 
+
+New settings:
+- ivfflat.bgw
+- ivfflat.gpu 
+
 # pgvector
 
 Open-source vector similarity search for Postgres

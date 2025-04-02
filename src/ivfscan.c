@@ -11,9 +11,17 @@
 #include "pgstat.h"
 #include "storage/bufmgr.h"
 #include "utils/memutils.h"
-
+#ifdef AERO
+#include "executor/executor.h"
+#include "gpuworker.h"
+#endif
 #define GetScanList(ptr) pairingheap_container(IvfflatScanList, ph_node, ptr)
 #define GetScanListConst(ptr) pairingheap_const_container(IvfflatScanList, ph_node, ptr)
+
+#ifdef AERO
+worker_data_head* worker = NULL;
+worker_exec_entry* ret = NULL;
+#endif
 
 /*
  * Compare list distances
@@ -351,6 +359,17 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 	if (so->first)
 	{
+
+#ifdef AERO
+		/* 
+		 * Start background worker if not started yet
+		 */
+		if (ivfflat_bgw) {
+			/* GPU background worker init */
+			worker =  launch_gpuworker();
+		}
+#endif
+
 		Datum		value;
 
 		/* Count index scan for stats */
@@ -365,13 +384,80 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		if (!IsMVCCSnapshot(scan->xs_snapshot))
 			elog(ERROR, "non-MVCC snapshots are not supported with ivfflat");
 
+#ifdef AERO
+	if(ivfflat_bgw) {
+		/*
+		 * Start job on background worker and wait for return
+		 */
+		worker_exec_entry* entry = get_free_slot(worker);
+		if(entry == NULL)
+			elog(ERROR,"No free slot available for pg_vector background worker");
+			
+		// Check for special operator
+		if(scan->orderByData->sk_strategy == 2) {
+			HeapTupleHeader t = DatumGetHeapTupleHeader(DatumGetPointer(scan->orderByData->sk_argument));
+			bool isnull;	
+			value = GetAttributeByNum(t, 1, &isnull);
+			if(isnull)
+				elog(ERROR,"Vector in advanced type can not be null !");	
+		
+			entry->op = DatumGetInt32( GetAttributeByNum(t, 2, &isnull) ); 
+			entry->filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
+			entry->filter = entry->filter*entry->filter; // Squared because we use squared distance for gpu functions
+
+		} else {
+			value = GetScanValue(scan);
+			entry->op = -100;
+			entry->filter = 0;
+		}
+
+		// Set job data
+		entry->notify_latch = MyLatch;
+		entry->nodeid = scan->indexRelation->rd_node;
+		entry->probes = so->probes;
+				
+		char* pos = entry->data;
+
+		// Copy vec to data
+		Vector* v = DatumGetVector(value);
+		entry->vec_dim = v->dim;
+		memcpy(pos, v->x, v->dim*sizeof(float));
+		entry->vector = (float*) pos;
+		pos += v->dim*sizeof(float);
+
+		// ToDo: Read TupDesc directly from relation in gpuworker !!!
+
+		// Copy tupledesc to data	
+		entry->tupdesc = (TupleDesc) pos;
+		memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute) );		
+		pos += sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute);
+	
+		put_slot(worker, entry);
+
+		// Get result
+		ret = get_return_slot(worker,entry->taskid);
+
+		if(ret->returns == -1) {
+			elog(ERROR,"Too many returns. Increase MAX_DATA in ivfgpu.h");
+		}	
+
+	} else {
+		if(scan->orderByData->sk_strategy == 2) 
+			elog(ERROR,"<!> operator only supported with background worker. Set ivfflat.bgw = 1.");
+#endif
 		value = GetScanValue(scan);
+
 		IvfflatBench("GetScanLists", GetScanLists(scan, value));
 		IvfflatBench("GetScanItems", GetScanItems(scan, value));
+#ifdef AERO
+	}
+#endif
 		so->first = false;
 		so->value = value;
 	}
 
+#ifdef AERO
+	if(!ivfflat_bgw) {
 	while (!tuplesort_gettupleslot(so->sortstate, true, false, so->mslot, NULL))
 	{
 		if (so->listIndex == so->maxProbes)
@@ -379,7 +465,17 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 		IvfflatBench("GetScanItems", GetScanItems(scan, so->value));
 	}
+	}
 
+	if(ivfflat_bgw) {
+		if (ret->pos == ret->returns)
+			return false;
+
+		page_item* tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
+		heaptid = (ItemPointer) &tmp->ipd;
+		ret->pos++;
+	} else
+#endif
 	heaptid = (ItemPointer) DatumGetPointer(slot_getattr(so->mslot, 2, &isnull));
 
 	scan->xs_heaptid = *heaptid;
@@ -395,6 +491,13 @@ void
 ivfflatendscan(IndexScanDesc scan)
 {
 	IvfflatScanOpaque so = (IvfflatScanOpaque) scan->opaque;
+
+#ifdef AERO
+	if(ivfflat_bgw) {
+		if(ret != NULL && worker != NULL)
+			free_slot(worker,ret);
+	}
+#endif
 
 	/* Free any temporary files */
 	tuplesort_end(so->sortstate);

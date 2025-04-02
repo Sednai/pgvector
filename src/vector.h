@@ -1,6 +1,12 @@
 #ifndef VECTOR_H
 #define VECTOR_H
 
+#ifdef AERO
+#ifdef __cplusplus
+#include "postgres.h"
+#endif
+#endif
+
 #define VECTOR_MAX_DIM 16000
 
 #define VECTOR_SIZE(_dim)		(offsetof(Vector, x) + sizeof(float)*(_dim))
