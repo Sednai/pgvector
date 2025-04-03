@@ -12,6 +12,8 @@
 #include "ivfgpu.h"
 #include "gpucache.hpp"
 
+#include "gpuworker.h"
+
 #undef qsort
 #include <stdlib.h>
 
@@ -311,7 +313,15 @@ void logsize() {
     CACHE->logsize();
 }
 
-int exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data) {
+int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
+    RelFileNode node = entry->nodeid;
+    int Np = entry->probes;
+    int op = entry->op;
+    float filter = entry->filter;
+    float* q = entry->vector;
+    int dim = entry->vec_dim;
+    char* return_data = entry->data;
+
     Relation R = {node};
     
     // Get probes for relation
@@ -351,20 +361,77 @@ int exec_query_cpu(RelFileNode node, int Np, int op, float filter, float* q, int
     // Sort
     qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
 
-    if(RET.length*sizeof(page_item) < MAX_DATA ) {
+   if(RET.length*sizeof(page_item) < MAX_DATA ) {
         // Copy to return
         memcpy(return_data,RET.data,RET.length*sizeof(page_item));
+        entry->next = NULL;
+        entry->returns = RET.length;
+        entry->pos = 0;
     } else {
-        // ToDo: Split into several ...
+        // Split into parts
+        int Np = MAX_DATA/sizeof(page_item);
+//cout << "[DEBUG] page_items / slot: " << Np << endl;
+        int N = RET.length/Np;
+        if (RET.length % Np != 0)
+            N++;
 
-        free(RET.data);
-        return -1;
+//cout << "[DEBUG] slots needed: " << N << " (" << RET.length << ")" << endl;
+        
+        // Request N slots
+        worker_exec_entry* slots[N-1];
+        bool fail = false;
+        for(int i = 0; i < N-1; i++) {
+            worker_exec_entry* tmp = get_free_slot(worker);
+            if(tmp != NULL)
+                slots[i] = tmp;
+            else {
+                slots[i] = NULL;
+                fail = true;
+                break;
+            }
+        }
+        
+        if(fail) {
+            // Cleanup and return
+            for(int i = 0; i < N-1; i++) {
+                if(slots[i] != NULL)
+                    free_slot(worker, slots[i]);
+                else 
+                    break;
+            }
+            free(RET.data);
+            return -1;
+        }
+
+        // Copy 1.
+        memcpy(return_data,RET.data,Np*sizeof(page_item));
+        entry->next = slots[0];
+        entry->returns = Np;
+        entry->pos = 0;
+        
+        // Copy remaining
+        for(int i = 0; i < N-2; i++) {
+            memcpy(slots[i]->data, RET.data+(i+1)*Np,Np*sizeof(page_item) );
+            slots[i]->returns = Np;
+            slots[i]->next = slots[i+1];
+            slots[i]->pos = 0;
+        }
+
+        // Copy last
+        slots[N-2]->returns = RET.length % Np;
+        if(slots[N-2]->returns == 0)
+            slots[N-2]->returns = Np;
+
+        slots[N-2]->next = NULL;
+        slots[N-2]->pos = 0;
+        memcpy(slots[N-2]->data, RET.data+(N-2)*Np,slots[N-2]->returns*sizeof(page_item) );
+        
     }
 
     // Free
     free(RET.data);
 
-    return RET.length;
+    return entry->returns;
 }
 
 #ifdef GPU

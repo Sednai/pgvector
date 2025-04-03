@@ -5,6 +5,9 @@
 #include "storage/latch.h"
 #include "postmaster/bgworker.h"
 #include "ivfgpu.h"
+#include "lib/ilist.h"
+#include "access/tupdesc.h"
+#include "storage/s_lock.h"
 
 #define MAX_QUEUE_LENGTH 32
 
@@ -40,10 +43,15 @@ typedef struct
 } worker_data_head;
 
 worker_data_head* launch_gpuworker();
-worker_exec_entry* get_free_slot(worker_data_head* worker);
 worker_exec_entry* get_return_slot(worker_data_head* worker, int taskid);
-void put_slot(worker_data_head* worker, worker_exec_entry* entry);
+#ifdef __cplusplus
+extern "C" void free_slot(worker_data_head* worker, worker_exec_entry* entry);
+extern "C" worker_exec_entry* get_free_slot(worker_data_head* worker);
+#else
 void free_slot(worker_data_head* worker, worker_exec_entry* entry);
+worker_exec_entry* get_free_slot(worker_data_head* worker);
+#endif
+void put_slot(worker_data_head* worker, worker_exec_entry* entry);
 
 void init_shared_mem(void);
 void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, int probenumber);

@@ -468,9 +468,17 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	}
 
 	if(ivfflat_bgw) {
-		if (ret->pos == ret->returns)
-			return false;
-
+		if (ret->pos == ret->returns || ret->returns == 0) {
+			if(ret->next != NULL) {
+				// Free and set next;
+				worker_exec_entry* tmp = ret;
+				ret = ret->next;
+				free_slot(worker,tmp);
+			} else {
+				return false;
+			}
+		}
+		
 		page_item* tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
 		heaptid = (ItemPointer) &tmp->ipd;
 		ret->pos++;

@@ -203,6 +203,7 @@ void load_index(RelFileNode node, TupleDesc tupdesc ) {
 void
 pgv_gpuworker_main(Datum main_arg)
 {
+    
 	char buf[BGW_MAXLEN];
 	snprintf(buf, BGW_MAXLEN, "%s", MyBgworkerEntry->bgw_name); 
 
@@ -230,6 +231,9 @@ pgv_gpuworker_main(Datum main_arg)
 	/* We're now ready to receive signals */
 	BackgroundWorkerUnblockSignals();
 		
+    //elog(WARNING,"[DEBUG] -> pid: %d",MyProcPid);
+	//sleep(60);
+
     /*
 	 * Main loop: do this until SIGTERM is received and processed by
 	 * ProcessInterrupts.
@@ -266,13 +270,14 @@ pgv_gpuworker_main(Datum main_arg)
         load_index(entry->nodeid, entry->tupdesc);
 
         // Compute
-        if(!entry->usegpu)
-            entry->returns = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
+        if(!entry->usegpu) {
+            entry->returns = exec_query_cpu(entry, worker_head);
+        }
         else
 #ifdef GPU
             entry->returns = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
 #else
-            entry->returns = exec_query_cpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
+            entry->returns = exec_query_cpu(entry, worker_head);
 #endif
         entry->pos = 0;
 
