@@ -1,12 +1,53 @@
-# Experimental AERO modifications in ivfflat:
+# Experimental AERO modifications for IVFFLAT:
 
-- GPU background worker process (keeping index in gpu memory)
+- Background worker process (keeping index persistent in external memory)
 - Where clause directly during index scan
 - Index distance calculations, filtering and sort on GPU 
 
 New settings:
 - ivfflat.bgw
 - ivfflat.gpu 
+
+New operator for euclidean metric `WHERE` clause directly in index scan:
+
+```tsql
+vector <!> vector_adv
+```
+
+with
+
+```tsql
+vector_adv = (vector,int,float)
+```
+
+`int` specifies the filter operator and `float` the condition value
+```
+2: >=
+1: >
+0: ==
+-1: <
+-2: <=
+-100: no filter
+```
+
+Dropping a `WHERE` condition and only using instead the `<!>` operator in the `ORDER BY` will be significantly faster as less tuples have to be sorted and pushed into the database processing stream. Further, re-evaluation of distances inside Postgres for the `WHERE` clause will be skipped.
+
+Note the following current limitations of bgw:
+- No active memory management.
+- Return result set size limited by total shared memory (set at compile time with `MAX_DATA` and `MAX_QUEUE_LENGTH` )
+- Max vector dim set to 1024
+ 
+Note that bgw worker can be killed via `select kill_pgv_worker()` (currently the only way to release the reserved memory).
+
+Installation:
+
+For pure CPU version:
+`make aero` followed by `make install`
+
+For GPU (requires CUDA):
+add `-DGPU` flag to the `Makefile` and run
+`make gpu` followed by `make install`
+
 
 # pgvector
 

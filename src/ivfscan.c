@@ -478,7 +478,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 				return false;
 			}
 		}
-		
+		// ToDo: Do not return page_item but only ItemPointer
 		page_item* tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
 		heaptid = (ItemPointer) &tmp->ipd;
 		ret->pos++;
