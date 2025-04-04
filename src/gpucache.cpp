@@ -435,8 +435,14 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
 }
 
 #ifdef GPU
-int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data) {
-
+int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
+    RelFileNode node = entry->nodeid;
+    int Np = entry->probes;
+    int op = entry->op;
+    float filter = entry->filter;
+    float* q = entry->vector;
+    int dim = entry->vec_dim;
+    char* return_data = entry->data;
     Relation R = {node};
     
     // Get probes for relation
@@ -509,10 +515,94 @@ int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int
             I->ipd = E->getItemPointerData( d_r_cpu[i].pos );
             I->searchPage = E->getPage( d_r_cpu[i].pos );
         }
+        entry->next = NULL;
+        entry->returns = a;
+        entry->pos = 0;
     }
     else {
-        // ToDo: Split into several ...
-        a = -1;
+        // Split into parts
+        int Np = MAX_DATA/sizeof(page_item);
+        int N = a/Np;
+        if (a % Np != 0)
+            N++;
+
+        // Request N slots
+        worker_exec_entry* slots[N-1];
+        bool fail = false;
+        for(int i = 0; i < N-1; i++) {
+            worker_exec_entry* tmp = get_free_slot(worker);
+            if(tmp != NULL)
+                slots[i] = tmp;
+            else {
+                slots[i] = NULL;
+                fail = true;
+                break;
+            }
+        }
+        
+        if(fail) {
+            // Cleanup and return
+            for(int i = 0; i < N-1; i++) {
+                if(slots[i] != NULL)
+                    free_slot(worker, slots[i]);
+                else 
+                    break;
+            }
+            
+            // Cleanup
+            free_gpu_memory(d_a);
+            free(d_r_cpu);
+            free_gpu_memory(d_q);
+            free_gpu_memory(d_r);
+
+            return -1;
+        }
+
+        // Copy 1.
+        for(int i = 0; i < Np; i++) {
+            probe_entry* E = P->get( idx[ d_r_cpu[i].probe]  );
+            page_item* I = &((page_item*) return_data)[i];
+
+            I->distance = d_r_cpu[i].distance;
+            I->ipd = E->getItemPointerData( d_r_cpu[i].pos );
+            I->searchPage = E->getPage( d_r_cpu[i].pos );
+        }
+        entry->next = slots[0];
+        entry->returns = Np;
+        entry->pos = 0;
+        
+        // Copy
+        for(int i = 0; i < N-2; i++) {
+            slots[i]->returns = Np;
+            slots[i]->next = slots[i+1];
+            slots[i]->pos = 0;
+            
+            for(int n = 0; n < Np; n++) {
+                probe_entry* E = P->get( idx[ d_r_cpu[n].probe]  );
+                page_item* I = &((page_item*) slots[i]->data)[n];
+
+                I->distance = d_r_cpu[n].distance;
+                I->ipd = E->getItemPointerData( d_r_cpu[n].pos );
+                I->searchPage = E->getPage( d_r_cpu[n].pos );
+            }
+        }
+
+        // Copy last
+        slots[N-2]->returns = a % Np;
+        if(slots[N-2]->returns == 0)
+            slots[N-2]->returns = Np;
+
+        slots[N-2]->next = NULL;
+        slots[N-2]->pos = 0;
+
+        for(int n = 0; n < slots[N-2]->returns; n++) {
+            probe_entry* E = P->get( idx[ d_r_cpu[n].probe]  );
+            page_item* I = &((page_item*) slots[N-2]->data)[n];
+
+            I->distance = d_r_cpu[n].distance;
+            I->ipd = E->getItemPointerData( d_r_cpu[n].pos );
+            I->searchPage = E->getPage( d_r_cpu[n].pos );
+        }
     }
 
     free_gpu_memory(d_a);
@@ -522,7 +612,7 @@ int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int
     free_gpu_memory(d_q);
     free_gpu_memory(d_r);
 
-    return a;
+    return entry->returns;
 }
 #endif
 

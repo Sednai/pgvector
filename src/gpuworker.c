@@ -275,7 +275,7 @@ pgv_gpuworker_main(Datum main_arg)
         }
         else
 #ifdef GPU
-            entry->returns = exec_query_gpu(entry->nodeid, entry->probes, entry->op, entry->filter, entry->vector, entry->vec_dim, entry->data);
+            entry->returns = exec_query_gpu(entry, worker_head);
 #else
             entry->returns = exec_query_cpu(entry, worker_head);
 #endif

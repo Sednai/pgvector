@@ -12,12 +12,12 @@ extern "C" int new_probe(RelFileNode node, Vector* c);
 extern "C" void insert(RelFileNode node, int probenumber, Vector* c, int page, ItemPointerData ipd);
 extern "C" void logsize();
 extern "C" int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker);
-extern "C" int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data);
+extern "C" int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker);
 #else
 extern bool incache(RelFileNode node);
 extern int new_probe(RelFileNode node, Vector* c);
 extern int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker);
-extern int exec_query_gpu(RelFileNode node, int Np, int op, float filter, float* q, int dim, char* return_data);
+extern int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker);
 extern void insert(RelFileNode node, int probenumber, Vector* c, int page, ItemPointerData ipd);
 extern void logsize();
 #endif
