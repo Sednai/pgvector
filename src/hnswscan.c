@@ -303,6 +303,11 @@ hnswgettuple(IndexScanDesc scan, ScanDirection dir)
 			so->previousDistance = sc->distance;
 		}
 
+#ifdef AERO
+// Insert here WHERE push down ?
+// <- I think should be ok, no calc needed ... but not very large advantage due to modus operanti of hnsw
+
+#endif
 		MemoryContextSwitchTo(oldCtx);
 
 		scan->xs_heaptid = *heaptid;

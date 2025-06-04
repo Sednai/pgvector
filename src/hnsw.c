@@ -183,7 +183,14 @@ hnswcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	{
 		double		scalingFactor = 0.55;
 		int			entryLevel = (int) (log(path->indexinfo->tuples) * HnswGetMl(m));
+#ifdef AERO
+		// Make index scan more likely
+//		int			layer0TuplesMax = 0;
 		int			layer0TuplesMax = HnswGetLayerM(m, 0) * hnsw_ef_search;
+
+#else
+		int			layer0TuplesMax = HnswGetLayerM(m, 0) * hnsw_ef_search;
+#endif
 		double		layer0Selectivity = scalingFactor * log(path->indexinfo->tuples) / (log(m) * (1 + log(hnsw_ef_search)));
 
 		ratio = (entryLevel * m + layer0TuplesMax * layer0Selectivity) / path->indexinfo->tuples;

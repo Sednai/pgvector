@@ -9,7 +9,7 @@
 #include "access/tupdesc.h"
 #include "storage/s_lock.h"
 
-#define MAX_QUEUE_LENGTH 32
+#define MAX_QUEUE_LENGTH 128
 
 typedef struct worker_exec_entry
 {
@@ -20,6 +20,7 @@ typedef struct worker_exec_entry
     RelFileNode nodeid;
     TupleDesc tupdesc;
     bool usegpu;
+    bool usetriangle;
     int probes;
     int op;
     float filter;
@@ -54,7 +55,7 @@ worker_exec_entry* get_free_slot(worker_data_head* worker);
 void put_slot(worker_data_head* worker, worker_exec_entry* entry);
 
 void init_shared_mem(void);
-void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, int probenumber);
-void load_index(RelFileNode node, TupleDesc tupdesc );
+void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, int probenumber, bool use_triangle);
+void load_index(RelFileNode node, TupleDesc tupdesc, bool use_triangle);
 
 #endif

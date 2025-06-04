@@ -85,6 +85,7 @@ extern int	ivfflat_max_probes;
 #ifdef AERO
 extern bool ivfflat_bgw;
 extern bool ivfflat_gpu;
+extern bool ivfflat_triangle;
 #endif
 typedef enum IvfflatIterativeScanMode
 {

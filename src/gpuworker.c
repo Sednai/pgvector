@@ -132,7 +132,7 @@ launch_gpuworker()
 	return worker_head;
 }
 
-void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, int probenumber) {
+void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, int probenumber, bool use_triangle) {
     IndexTuple	itup;  
     bool isnull;
     OffsetNumber offno;
@@ -151,9 +151,16 @@ void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, i
             itup = (IndexTuple) PageGetItem(cpage, PageGetItemId(cpage, offno));
             
             Vector *v = PointerGetDatum( index_getattr(itup, 1, tupdesc, &isnull) );
-            
+           
             // Store
-            insert(node, probenumber, v, (int) page, itup->t_tid);
+            if(!use_triangle) {
+                insert(node, probenumber, v, (int) page, itup->t_tid);
+            } else {
+            
+                double dist = DatumGetFloat8( index_getattr(itup, 2, tupdesc, &isnull) );
+                
+                insert_wdistance(node, probenumber, v, (float) dist, (int) page, itup->t_tid);
+            }
         }
 
         page = IvfflatPageGetOpaque(cpage)->nextblkno;
@@ -162,11 +169,11 @@ void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, i
     }
 }
 
-void load_index(RelFileNode node, TupleDesc tupdesc ) {
+void load_index(RelFileNode node, TupleDesc tupdesc, bool use_triangle ) {
 
     // Not found in cache -> Load data
     if(!incache(node)) {
-        
+    //if(true) {  
         BlockNumber nextblkno = IVFFLAT_HEAD_BLKNO;
 	    Buffer cbuf;
 
@@ -185,11 +192,11 @@ void load_index(RelFileNode node, TupleDesc tupdesc ) {
                 Vector *c = PointerGetDatum(&list->center);
 
                 // Store as new probe
-                int pn = new_probe(node, c); 
+                int pn = new_probe(node, c, use_triangle); 
 
                 BlockNumber spage = list->startPage;
                 
-                load_index_members(node, spage, tupdesc, pn);
+                load_index_members(node, spage, tupdesc, pn, use_triangle);
             }
 
             nextblkno = IvfflatPageGetOpaque(cpage)->nextblkno;
@@ -267,7 +274,7 @@ pgv_gpuworker_main(Datum main_arg)
 
      	SpinLockRelease(&worker_head->lock);
 
-        load_index(entry->nodeid, entry->tupdesc);
+        load_index(entry->nodeid, entry->tupdesc, entry->usetriangle);
 
         // Compute
         if(!entry->usegpu) {

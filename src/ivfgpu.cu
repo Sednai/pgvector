@@ -174,15 +174,16 @@ __global__ void calc_squared_euclidean_distances_wleqfilter_v0(float* M, float* 
             int pos = atomicAdd(p,1);
             C[pos].distance = tmp;
             C[pos].probe = probe;
-            C[pos].pos = k;
+            C[pos].pos = k; 
         }
     }
 }
 
-__global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_item* C, int N, int L, int probe) {
+__global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_item* C, int* p, int N, int L, int probe) {
     unsigned int indexx = blockIdx.x*blockDim.x + threadIdx.x;
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
+    int pos = *p;
 
     __shared__ float VL[THREADS_PER_BLOCK];
     if(threadIdx.x < L)
@@ -195,9 +196,9 @@ __global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_it
         for(int i = 1; i < L; i++) {
             tmp += (M[L*k+i] - VL[i])*(M[L*k+i] - VL[i]);
         }
-        C[k].distance = tmp;
-        C[k].probe = probe;
-        C[k].pos = k;
+        C[pos+k].distance = tmp;
+        C[pos+k].probe = probe;
+        C[pos+k].pos = k;
     }
 }
 
@@ -228,7 +229,10 @@ void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item*
             calc_squared_euclidean_distances_wleqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
             break;
         default:
-            cudaMemcpy(p,&N, sizeof(int), cudaMemcpyHostToDevice);
-            calc_squared_euclidean_distances_v0d<<<NB,THREADS_PER_BLOCK>>>(M, V, C, N, L, probe);
+            calc_squared_euclidean_distances_v0d<<<NB,THREADS_PER_BLOCK>>>(M, V, C, p, N, L, probe);
+            int pos;
+            cudaMemcpy(&pos,p, sizeof(int), cudaMemcpyDeviceToHost);
+            pos += N;
+            cudaMemcpy(p,&pos, sizeof(int), cudaMemcpyHostToDevice);
     }       
 }

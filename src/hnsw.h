@@ -41,7 +41,11 @@
 #define HNSW_MAX_EF_CONSTRUCTION		1000
 #define HNSW_DEFAULT_EF_SEARCH	40
 #define HNSW_MIN_EF_SEARCH		1
+#ifdef AERO
+#define HNSW_MAX_EF_SEARCH		1000000
+#else
 #define HNSW_MAX_EF_SEARCH		1000
+#endif 
 
 /* Tuple types */
 #define HNSW_ELEMENT_TUPLE_TYPE  1

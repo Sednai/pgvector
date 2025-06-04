@@ -184,6 +184,11 @@ AddTupleToSort(Relation index, ItemPointer tid, Datum *values, IvfflatBuildState
 	slot->tts_isnull[1] = false;
 	slot->tts_values[2] = value;
 	slot->tts_isnull[2] = false;
+#ifdef AERO
+	/* Store distance to centroid for inequality calcs */
+	slot->tts_values[3] = Float8GetDatum(minDistance);
+	slot->tts_isnull[3] = false;
+#endif 
 	ExecStoreVirtualTuple(slot);
 
 	/*
@@ -230,14 +235,30 @@ GetNextTuple(Tuplesortstate *sortstate, TupleDesc tupdesc, TupleTableSlot *slot,
 {
 	if (tuplesort_gettupleslot(sortstate, true, false, slot, NULL))
 	{
+#ifdef AERO
+		Datum 		value[2];
+		bool 		isnull[2];
+#else
 		Datum		value;
 		bool		isnull;
 
+#endif	
+
+#ifdef AERO
+		*list = DatumGetInt32(slot_getattr(slot, 1, &isnull[0]));
+		value[0] = slot_getattr(slot, 3, &isnull[0]);
+		value[1] = slot_getattr(slot, 4, &isnull[1]);
+#else
 		*list = DatumGetInt32(slot_getattr(slot, 1, &isnull));
 		value = slot_getattr(slot, 3, &isnull);
+#endif
 
 		/* Form the index tuple */
+#ifdef AERO
+		*itup = index_form_tuple(tupdesc, value, isnull);
+#else
 		*itup = index_form_tuple(tupdesc, &value, &isnull);
+#endif
 		(*itup)->t_tid = *((ItemPointer) DatumGetPointer(slot_getattr(slot, 2, &isnull)));
 	}
 	else
@@ -255,8 +276,13 @@ InsertTuples(Relation index, IvfflatBuildState * buildstate, ForkNumber forkNum)
 	int64		inserted = 0;
 
 	TupleTableSlot *slot = MakeSingleTupleTableSlot(buildstate->sortdesc, &TTSOpsMinimalTuple);
+#ifdef AERO
+	TupleDesc tupdesc = CreateTemplateTupleDesc(2);
+	TupleDescCopyEntry(tupdesc, (AttrNumber) 1, buildstate->tupdesc, (AttrNumber) 1);
+	TupleDescCopyEntry(tupdesc, (AttrNumber) 2, buildstate->sortdesc, (AttrNumber) 4);
+#else
 	TupleDesc	tupdesc = buildstate->tupdesc;
-
+#endif
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_IVFFLAT_PHASE_LOAD);
 
 	pgstat_progress_update_param(PROGRESS_CREATEIDX_TUPLES_TOTAL, buildstate->indtuples);
@@ -357,10 +383,18 @@ InitBuildState(IvfflatBuildState * buildstate, Relation heap, Relation index, In
 				 errmsg("dimensions must be greater than one for this opclass")));
 
 	/* Create tuple description for sorting */
+#ifdef AERO
+	buildstate->sortdesc = CreateTemplateTupleDesc(4);
+#else
 	buildstate->sortdesc = CreateTemplateTupleDesc(3);
+#endif
 	TupleDescInitEntry(buildstate->sortdesc, (AttrNumber) 1, "list", INT4OID, -1, 0);
 	TupleDescInitEntry(buildstate->sortdesc, (AttrNumber) 2, "tid", TIDOID, -1, 0);
 	TupleDescInitEntry(buildstate->sortdesc, (AttrNumber) 3, "vector", TupleDescAttr(buildstate->tupdesc, 0)->atttypid, -1, 0);
+#ifdef AERO
+	/* Distance to centroid for inequality calcs */
+	TupleDescInitEntry(buildstate->sortdesc, (AttrNumber) 4, "distance", FLOAT8OID, -1, 0);
+#endif
 
 	buildstate->slot = MakeSingleTupleTableSlot(buildstate->sortdesc, &TTSOpsVirtual);
 

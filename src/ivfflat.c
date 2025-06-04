@@ -25,6 +25,7 @@ int			ivfflat_max_probes;
 #ifdef AERO
 bool 		ivfflat_bgw;
 bool        ivfflat_gpu;
+bool        ivfflat_triangle;
 #endif
 static relopt_kind ivfflat_relopt_kind;
 
@@ -64,7 +65,10 @@ IvfflatInit(void)
 	DefineCustomBoolVariable("ivfflat.gpu", "Use GPU",
 							NULL, &ivfflat_gpu,
 							false, PGC_USERSET, 0, NULL, NULL, NULL);
-
+	DefineCustomBoolVariable("ivfflat.triangle", "Use inequality relations",
+								NULL, &ivfflat_triangle,
+								false, PGC_USERSET, 0, NULL, NULL, NULL);
+							
 	/* Reserve shared memory */
 	init_shared_mem();
 
@@ -212,7 +216,11 @@ ivfflathandler(PG_FUNCTION_ARGS)
 	amroutine->amoptionalkey = true;
 	amroutine->amsearcharray = false;
 	amroutine->amsearchnulls = false;
+#ifdef AERO
+	amroutine->amstorage = true;
+#else
 	amroutine->amstorage = false;
+#endif
 	amroutine->amclusterable = false;
 	amroutine->ampredlocks = false;
 	amroutine->amcanparallel = false;

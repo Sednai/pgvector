@@ -416,6 +416,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		entry->nodeid = scan->indexRelation->rd_node;
 		entry->probes = so->probes;
 		entry->usegpu = ivfflat_gpu;
+		entry->usetriangle = ivfflat_triangle;
 		char* pos = entry->data;
 
 		// Copy vec to data
@@ -429,8 +430,17 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 		// Copy tupledesc to data	
 		entry->tupdesc = (TupleDesc) pos;
-		memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute) );		
-		pos += sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute);
+
+		TupleDesc desc = CreateTemplateTupleDesc(2);
+		
+		TupleDescCopyEntry(desc, (AttrNumber) 1, scan->indexRelation->rd_att, (AttrNumber) 1);
+		TupleDescInitEntry(desc, (AttrNumber) 2, "distance", FLOAT8OID, -1, 0);
+
+		memcpy(pos, desc, sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute) );		
+		pos += sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute);
+	
+		//memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute) );		
+		//pos += sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute);
 	
 		put_slot(worker, entry);
 
@@ -468,12 +478,14 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	}
 
 	if(ivfflat_bgw) {
+		//elog(WARNING,"[DEBUG]: slot %d,%d",ret->pos,ret->returns);
 		if (ret->pos == ret->returns || ret->returns == 0) {
 			if(ret->next != NULL) {
 				// Free and set next;
 				worker_exec_entry* tmp = ret;
 				ret = ret->next;
 				free_slot(worker,tmp);
+				//elog(WARNING,"[DEBUG]: slot freed");
 			} else {
 				return false;
 			}
@@ -503,7 +515,13 @@ ivfflatendscan(IndexScanDesc scan)
 #ifdef AERO
 	if(ivfflat_bgw) {
 		if(ret != NULL && worker != NULL)
-			free_slot(worker,ret);
+			// ToDo: Free all remaining slots in chain ! 	
+			while(ret != NULL) {
+				worker_exec_entry* tmp = ret;
+				ret = ret->next;		
+				free_slot(worker,tmp);
+				//elog(WARNING,"[DEBUG]: end slot freed");
+			}
 	}
 #endif
 

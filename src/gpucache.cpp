@@ -83,6 +83,19 @@ static inline bool filter_func(float val, float cond, int mode) {
 	return false;
 }
 
+static inline bool triangle_filter(float qcdist, float pcdist, float cond, int mode) {
+    //cout << "qc: " << qcdist << " pc: " << pcdist << " -> " << abs(qcdist - pcdist) << " cond: " << cond << " mode: " << mode << endl;
+
+    switch(mode) {
+        case -1: // OP: <
+            if ( abs(qcdist - pcdist) >= cond)
+                return false;
+            break;
+    }
+
+    return true;    
+}
+
 /*
 static void adjust_buffer(page_list* L, long n_new_elements) {
 	// Adjust buffer
@@ -102,6 +115,8 @@ class probe_entry {
     // Data
     float* vectors_gpu = nullptr;   
     float* vectors_cpu;
+    float* centroid_distance = nullptr;
+
     int* pages;
     ItemPointerData* itdata;
 
@@ -112,7 +127,7 @@ class probe_entry {
         int dim;
         float* probe;
         
-        probe_entry(Vector* v) {
+        probe_entry(Vector* v, bool use_triangle) {
             // Init
             dim = v->dim;
             probe = new float[v->dim];
@@ -121,6 +136,9 @@ class probe_entry {
             vectors_cpu = (float*) malloc(INIT_STORE_SIZE*dim*sizeof(float));
             pages = (int*) malloc(INIT_STORE_SIZE*sizeof(int));
             itdata = (ItemPointerData*) malloc(INIT_STORE_SIZE*sizeof(ItemPointerData));
+
+            if(use_triangle)
+                centroid_distance = (float*) malloc(INIT_STORE_SIZE*sizeof(float));
         } 
         
         void insert_vector(Vector* v, int page, ItemPointerData ipd) {
@@ -138,6 +156,24 @@ class probe_entry {
     
             length++;
         }
+
+        void insert_vector(Vector* v, float distance, int page, ItemPointerData ipd) {
+            if(maxlength - length == 0)  {
+                // Enlarge storage 
+                maxlength *= 1.5;
+                vectors_cpu = (float*) realloc(vectors_cpu, maxlength*dim*sizeof(float));
+                pages = (int*) realloc(pages, maxlength*sizeof(int));
+                itdata = (ItemPointerData*) realloc(itdata, maxlength*sizeof(ItemPointerData));
+                centroid_distance = (float*) realloc(centroid_distance, maxlength*sizeof(float));        
+            } 
+
+            memcpy(&vectors_cpu[dim*length], v->x, v->dim*sizeof(float));
+            pages[length] = page;
+            itdata[length] = ipd;
+            centroid_distance[length] = sqrt(distance); // Note: its stored squared
+
+            length++;
+        }
  
         long size() {
             return length;
@@ -147,6 +183,10 @@ class probe_entry {
             return &vectors_cpu[idx*dim];
         }
         
+        float getCentroidDistanceCPU(long idx) {
+            return centroid_distance[idx];
+        }
+
         float* getAllVectorsCPU() {
             return vectors_cpu;
         }
@@ -190,8 +230,8 @@ class probes {
     vector<probe_entry*> PROBES;
     public:
           
-        int insert(Vector* in) {
-            probe_entry *PE = new probe_entry(in);
+        int insert(Vector* in, bool use_triangle) {
+            probe_entry *PE = new probe_entry(in,use_triangle);
             
             PROBES.push_back( PE );    
 
@@ -200,6 +240,10 @@ class probes {
 
         void insert_vector(int probenumber, Vector* x, int page, ItemPointerData ipd) {
             PROBES[probenumber]->insert_vector(x, page, ipd);
+        }
+
+        void insert_vector(int probenumber, Vector* x, float distance, int page, ItemPointerData ipd) {
+            PROBES[probenumber]->insert_vector(x, distance, page, ipd);
         }
 
         probe_entry* get(int p) {
@@ -244,7 +288,7 @@ class cpucache {
                 return true;
         }
 
-        int insert(Relation node, Vector* c) {
+        int insert(Relation node, Vector* c, bool use_triangle) {
         
             probes *P;
             if(!contains(node)) {
@@ -254,7 +298,7 @@ class cpucache {
                 P = MAP[node];
             }
 
-            return P->insert(c);
+            return P->insert(c, use_triangle);
         }
         
         probes* get(Relation node) {
@@ -264,6 +308,11 @@ class cpucache {
         void insert_vector(Relation node, int probenumber, Vector* v, int page, ItemPointerData ipd ) {
             probes *P = MAP[node];
             P->insert_vector(probenumber, v, page, ipd);
+        }
+
+        void insert_vector(Relation node, int probenumber, Vector* v, float dist, int page, ItemPointerData ipd ) {
+            probes *P = MAP[node];
+            P->insert_vector(probenumber, v, dist, page, ipd);
         }
 
         void logsize() {
@@ -296,10 +345,10 @@ bool incache(RelFileNode node) {
     return CACHE->contains(R);
 }
 
-int new_probe(RelFileNode node, Vector* c) {
+int new_probe(RelFileNode node, Vector* c, bool use_triangle) {
     Relation R = {node};
 
-    return CACHE->insert(R, c);
+    return CACHE->insert(R, c, use_triangle);
 
 }
 
@@ -308,6 +357,13 @@ void insert(RelFileNode node, int probenumber, Vector* c, int page, ItemPointerD
 
     return CACHE->insert_vector(R, probenumber, c, page, ipd);
 }
+
+void insert_wdistance(RelFileNode node, int probenumber, Vector* c, float distance, int page, ItemPointerData ipd) {
+    Relation R = {node};
+
+    return CACHE->insert_vector(R, probenumber, c, distance, page, ipd);
+}
+
 
 void logsize() {
     CACHE->logsize();
@@ -318,6 +374,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
     int Np = entry->probes;
     int op = entry->op;
     float filter = entry->filter;
+    float sfilter = sqrt(entry->filter);
     float* q = entry->vector;
     int dim = entry->vec_dim;
     char* return_data = entry->data;
@@ -333,6 +390,8 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
     RET.data = (page_item*) malloc(sizeof(page_item) * INIT_STORE_SIZE);
     RET.length = 0;
     RET.max_length = INIT_STORE_SIZE;
+    
+    int pcount = 0;
 
     for(int i = 0; i < min(idx.size(), (size_t) Np); i++) {
         // Get entry
@@ -341,10 +400,23 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
         
         adjust_buffer(&RET, L);
         
+        // Calc distance q to centroid
+        float qdist;
+        if(entry->usetriangle) {
+            qdist = sqrt( squared_eucl_dist(q, E->probe, dim) );
+            //cout << i << ": " << qdist << endl;
+        }
+
         // Loop over vectors    
         for(long j = 0; j < L; j++) {
-            float dist = squared_eucl_dist(q, E->getVectorCPU(j),dim);
-
+            // Pre-filter with triangular inequalities
+            if(entry->usetriangle && !triangle_filter(qdist, E->getCentroidDistanceCPU(j), sfilter, op)) {
+                //cout << j << ": prefiltered" << endl;
+                pcount++;
+                continue;
+            }
+            float dist = squared_eucl_dist(q, E->getVectorCPU(j), dim);
+            //cout << j << ": true dist: " << sqrt(dist) << endl;
             // Filter
             if(!filter_func(dist,filter,op))
                 continue;
@@ -358,10 +430,12 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
         }
     }
 
+    //cout << "prefiltered: " << pcount << endl;
+
     // Sort
     qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
 
-   if(RET.length*sizeof(page_item) < MAX_DATA ) {
+    if(RET.length*sizeof(page_item) <= MAX_DATA ) {
         // Copy to return
         memcpy(return_data,RET.data,RET.length*sizeof(page_item));
         entry->next = NULL;
@@ -506,7 +580,7 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));
     copy_memory_to_cpu(d_r_cpu, d_r, a*sizeof(sort_item));
 
-    if(a*sizeof(page_item) < MAX_DATA ) {
+    if(a*sizeof(page_item) <= MAX_DATA ) {
         for(int i = 0; i < a; i++) {
             probe_entry* E = P->get( idx[ d_r_cpu[i].probe]  );
             page_item* I = &((page_item*) return_data)[i];
@@ -526,6 +600,8 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
         if (a % Np != 0)
             N++;
 
+        //cout << "[DEBUG] slots needed: " << N << " (" << a << ","<< Np << ")" << endl;
+
         // Request N slots
         worker_exec_entry* slots[N-1];
         bool fail = false;
@@ -541,6 +617,8 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
         }
         
         if(fail) {
+            //cout << "[DEBUG] slots: FAIL" << endl;
+
             // Cleanup and return
             for(int i = 0; i < N-1; i++) {
                 if(slots[i] != NULL)

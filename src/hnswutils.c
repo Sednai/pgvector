@@ -972,6 +972,8 @@ HnswSearchLayer(char *base, HnswQuery * q, List *ep, int ef, int lc, Relation in
 		w = lappend(w, sc);
 	}
 
+	//elog(WARNING,"[DEBUG] ep #: %d", list_length(w));
+
 	return w;
 }
 
