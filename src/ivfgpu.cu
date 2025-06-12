@@ -4,6 +4,8 @@
 
 #define THREADS_PER_BLOCK 1024
 
+void init_gpu() {}
+
 void init_gpu_memory(void** P, int size) {
     // Initialize non-unified memory
     cudaMalloc(P, size);    

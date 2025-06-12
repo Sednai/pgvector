@@ -62,10 +62,12 @@ PROVE_FLAGS += -I ./test/perl
 # AERO
 aero:	all
 	g++ $(PG_CPPFLAGS) -march=native -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/gpucache.o
-gpu:	all
+cuda:	all
 	nvcc $(PG_CPPFLAGS) -Xcompiler="-march=native" -I$(includedir_server)  --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
 	nvcc $(PG_CPPFLAGS) -Xcompiler="-march=native" -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o	
-
+sycl:	all
+	icpx $(PG_CPPFLAGS) -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -I$(includedir_server) -fPIC -shared -c src/ivfgpu.cpp -o src/ivfgpu.o
+	icpx $(PG_CPPFLAGS) -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o 
 
 prove_installcheck:
 	rm -rf $(CURDIR)/tmp_check

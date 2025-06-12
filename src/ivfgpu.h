@@ -42,6 +42,7 @@ static int compare_pi(const void* a, const void* b) {
 }
 
 #ifdef GPU
+extern void init_gpu();
 extern void init_gpu_memory(void** P, int size);
 extern void free_gpu_memory(void* P);
 extern void copy_memory_to_gpu(void* T, void* F, int size);

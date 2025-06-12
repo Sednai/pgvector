@@ -143,6 +143,9 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	if (ratio > 1.0)
 		ratio = 1.0;
 
+	// DEBUG
+	ratio = 0;
+
 	get_tablespace_page_costs(path->indexinfo->reltablespace, NULL, &spc_seq_page_cost);
 
 	/* Change some page cost from random to sequential */

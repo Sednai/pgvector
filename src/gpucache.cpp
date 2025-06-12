@@ -204,7 +204,10 @@ class probe_entry {
         }
 #ifdef GPU
         void storeOnGPU() {
+            
             if(vectors_gpu == nullptr) {
+                init_gpu();
+                
                 // Init ordinary cuda memory
                 init_gpu_memory((void**) &vectors_gpu, length * dim * sizeof(float) );
                 
@@ -531,11 +534,6 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     RET.length = 0;
     RET.max_length = INIT_STORE_SIZE;
 
-    // Store query vector on GPU
-    float* d_q;
-    init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
-    copy_memory_to_gpu(d_q, q, dim*sizeof(float));
-    
     int L = 0;
     // Prepare for all probes at once
     for(int i = 0; i < Np; i++) {
@@ -548,6 +546,11 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
         L += E->size();
     }
 
+    // Store query vector on GPU
+    float* d_q;
+    init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
+    copy_memory_to_gpu(d_q, q, dim*sizeof(float));
+    
     // pointer to on device distance results
     sort_item* d_r;
     init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );
