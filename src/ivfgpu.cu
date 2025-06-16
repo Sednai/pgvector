@@ -6,9 +6,10 @@
 
 void init_gpu() {}
 
-void init_gpu_memory(void** P, int size) {
+void* init_gpu_memory(void** P, int size) {
     // Initialize non-unified memory
-    cudaMalloc(P, size);    
+    cudaMalloc(P, size);   
+    return *P; 
 }
 
 void free_gpu_memory(void* P) {

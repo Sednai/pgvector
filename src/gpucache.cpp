@@ -209,7 +209,7 @@ class probe_entry {
                 init_gpu();
                 
                 // Init ordinary cuda memory
-                init_gpu_memory((void**) &vectors_gpu, length * dim * sizeof(float) );
+                vectors_gpu = (float*) init_gpu_memory((void**) &vectors_gpu, length * dim * sizeof(float) );
                 
                 // Copy
                 copy_memory_to_gpu(vectors_gpu, vectors_cpu, length*dim*sizeof(float));
@@ -548,17 +548,17 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
 
     // Store query vector on GPU
     float* d_q;
-    init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
+    d_q = (float*) init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
     copy_memory_to_gpu(d_q, q, dim*sizeof(float));
     
     // pointer to on device distance results
     sort_item* d_r;
-    init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );
+    d_r = (sort_item*) init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );
     
     // pointer to active position
     int a = 0;
     int* d_a; 
-    init_gpu_memory((void**) &d_a, sizeof(int) );
+    d_a = (int*) init_gpu_memory((void**) &d_a, sizeof(int) );
     copy_memory_to_gpu(d_a, &a, sizeof(int));
 
     L = 0;
@@ -645,7 +645,7 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
             page_item* I = &((page_item*) return_data)[i];
 
             I->distance = d_r_cpu[i].distance;
-            I->ipd = E->getItemPointerData( d_r_cpu[i].pos );
+            I->ipd = E->getItemPointerData( (long) d_r_cpu[i].pos );
             I->searchPage = E->getPage( d_r_cpu[i].pos );
         }
         entry->next = slots[0];
