@@ -2,7 +2,7 @@
 
 - Background worker process (keeping index persistent in external memory)
 - Where clause directly during index scan
-- Index distance calculations, filtering and sort on GPU 
+- Index distance calculations, filtering and sort on GPU (cuda or oneAPI)
 
 New settings:
 - ivfflat.bgw
@@ -44,9 +44,21 @@ Installation:
 For pure CPU version:
 `make aero` followed by `make install`
 
-For GPU (requires CUDA):
-add `-DGPU` flag to the `Makefile` and run
-`make gpu` followed by `make install`
+For GPU or openCL backend:
+
+CUDA:
+Enable `-DGPU` flag in the `Makefile` and run
+`make cuda` followed by `make install`
+
+oneAPI (for Nvidia):
+Enable `-DGPU` flag in the `Makefile` and run
+`make sycl` followed by `make install`
+(requires intel base toolkit plugin from codeplay)
+
+oneAPI (for openCL):
+Enable `-DGPU` flag in the `Makefile` and run
+`make opencl` followed by `make install`
+
 
 
 # pgvector
