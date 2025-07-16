@@ -511,8 +511,8 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
     return entry->returns;
 }
 
-#ifdef GPU
 int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
+#ifdef GPU
     RelFileNode node = entry->nodeid;
     int Np = entry->probes;
     int op = entry->op;
@@ -694,6 +694,8 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     free_gpu_memory(d_r);
 
     return entry->returns;
-}
+#else
+    return exec_query_cpu(entry, worker);
 #endif
+}
 

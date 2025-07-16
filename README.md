@@ -47,18 +47,16 @@ For pure CPU version:
 For GPU or openCL backend:
 
 CUDA:
-Enable `-DGPU` flag in the `Makefile` and run
 `make cuda` followed by `make install`
+(requires cuda toolkit)
 
 oneAPI (for Nvidia):
-Enable `-DGPU` flag in the `Makefile` and run
 `make sycl` followed by `make install`
 (requires intel base toolkit plugin from codeplay)
 
 oneAPI (for openCL):
-Enable `-DGPU` flag in the `Makefile` and run
 `make opencl` followed by `make install`
-
+(requires oneAPI)
 
 
 # pgvector

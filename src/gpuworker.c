@@ -281,16 +281,10 @@ pgv_gpuworker_main(Datum main_arg)
             entry->returns = exec_query_cpu(entry, worker_head);
         }
         else
-#ifdef GPU
             entry->returns = exec_query_gpu(entry, worker_head);
-#else
-            entry->returns = exec_query_cpu(entry, worker_head);
-#endif
-        entry->pos = 0;
 
-        // Return
-        // ToDo: CUT into pieces if too long ...
-        
+        entry->pos = 0;
+  
         SpinLockAcquire(&worker_head->lock);
 		dlist_push_tail(&worker_head->return_list,&entry->node);
   		SpinLockRelease(&worker_head->lock);
