@@ -1347,13 +1347,13 @@ Datum
 kill_pgv_worker(PG_FUNCTION_ARGS) {
     bool found = false;
     int ret = 0;
+	worker_data_head* worker_head;
 
     // Get global data structure
     char buf[BGW_MAXLEN];
     snprintf(buf, BGW_MAXLEN, "pgv_gpuworker"); 
-        
-   
-    worker_data_head* worker_head = ShmemInitStruct(buf,
+         
+    worker_head = ShmemInitStruct(buf,
                                 sizeof(worker_data_head),
                                 &found);
     if(!found) {

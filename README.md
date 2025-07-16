@@ -8,6 +8,8 @@ New settings:
 - ivfflat.bgw
 - ivfflat.gpu 
 
+Set bgw to `on` for using background process worker. Set in addition gpu to `on` to offload storage and compute to device.
+
 New operator for euclidean metric `WHERE` clause directly in index scan:
 
 ```tsql
@@ -41,6 +43,8 @@ Note that bgw worker can be killed via `select kill_pgv_worker()` (currently the
 
 Installation:
 
+Always run first `make clean`.
+
 For pure CPU version:
 `make aero` followed by `make install`
 
@@ -52,11 +56,11 @@ CUDA:
 
 oneAPI (for Nvidia):
 `make sycl` followed by `make install`
-(requires intel base toolkit plugin from codeplay)
+(requires intel base toolkit + plugin from codeplay)
 
 oneAPI (for openCL):
 `make opencl` followed by `make install`
-(requires oneAPI)
+(requires intel base toolkit)
 
 
 # pgvector

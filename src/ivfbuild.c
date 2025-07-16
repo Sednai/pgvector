@@ -259,7 +259,7 @@ GetNextTuple(Tuplesortstate *sortstate, TupleDesc tupdesc, TupleTableSlot *slot,
 #else
 		*itup = index_form_tuple(tupdesc, &value, &isnull);
 #endif
-		(*itup)->t_tid = *((ItemPointer) DatumGetPointer(slot_getattr(slot, 2, &isnull)));
+		(*itup)->t_tid = *((ItemPointer) DatumGetPointer(slot_getattr(slot, 2, isnull)));
 	}
 	else
 		*list = -1;

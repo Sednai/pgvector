@@ -54,6 +54,19 @@ __inline__ float squared_eucl_dist(const float* X, const float* Y, int N) {
     return D;
 }
 
+static int compare_pi(const void* a, const void* b) {
+	
+	const page_item *elem1 = (page_item*) a;    
+    const page_item *elem2 = (page_item*) b;
+
+   if (elem1->distance < elem2->distance)
+      return -1;
+   else if (elem1->distance > elem2->distance)
+      return 1;
+   else
+      return 0;
+}
+
 static inline bool filter_func(float val, float cond, int mode) {
 	switch(mode) {
 		case 0:
@@ -264,14 +277,13 @@ class probes {
             return idx;
         }
 
-
         int size() {
             return PROBES.size();
         }
 
         long numvectors() {
             long N = 0;
-            for(int i = 0; i < PROBES.size(); i++) {
+            for(long unsigned i = 0; i < PROBES.size(); i++) {
                 N += PROBES[i]->size();
             }
             return N;
@@ -396,7 +408,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
     
     int pcount = 0;
 
-    for(int i = 0; i < min(idx.size(), (size_t) Np); i++) {
+    for(long unsigned i = 0; i < min(idx.size(), (size_t) Np); i++) {
         // Get entry
         probe_entry* E = P->get(idx[i]);
         long L = E->size();

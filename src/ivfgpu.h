@@ -28,19 +28,6 @@ typedef struct page_list {
 	page_item* data;
 } page_list;
 
-static int compare_pi(const void* a, const void* b) {
-	
-	const page_item *elem1 = (page_item*) a;    
-    const page_item *elem2 = (page_item*) b;
-
-   if (elem1->distance < elem2->distance)
-      return -1;
-   else if (elem1->distance > elem2->distance)
-      return 1;
-   else
-      return 0;
-}
-
 #ifdef GPU
 extern void init_gpu();
 extern void* init_gpu_memory(void** P, int size);

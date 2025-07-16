@@ -43,7 +43,7 @@ typedef struct
     worker_exec_entry list_data[MAX_QUEUE_LENGTH];
 } worker_data_head;
 
-worker_data_head* launch_gpuworker();
+worker_data_head* launch_gpuworker(void);
 worker_exec_entry* get_return_slot(worker_data_head* worker, int taskid);
 #ifdef __cplusplus
 extern "C" void free_slot(worker_data_head* worker, worker_exec_entry* entry);

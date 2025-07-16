@@ -359,6 +359,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 	if (so->first)
 	{
+		Datum		value;
 
 #ifdef AERO
 		/* 
@@ -369,8 +370,6 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			worker =  launch_gpuworker();
 		}
 #endif
-
-		Datum		value;
 
 		/* Count index scan for stats */
 		pgstat_count_index_scan(scan->indexRelation);
@@ -386,6 +385,10 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 #ifdef AERO
 	if(ivfflat_bgw) {
+		char* pos;
+		Vector* v;
+		TupleDesc desc;
+
 		/*
 		 * Start job on background worker and wait for return
 		 */
@@ -417,10 +420,10 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		entry->probes = so->probes;
 		entry->usegpu = ivfflat_gpu;
 		entry->usetriangle = ivfflat_triangle;
-		char* pos = entry->data;
+		pos = entry->data;
 
 		// Copy vec to data
-		Vector* v = DatumGetVector(value);
+		v = DatumGetVector(value);
 		entry->vec_dim = v->dim;
 		memcpy(pos, v->x, v->dim*sizeof(float));
 		entry->vector = (float*) pos;
@@ -431,7 +434,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		// Copy tupledesc to data	
 		entry->tupdesc = (TupleDesc) pos;
 
-		TupleDesc desc = CreateTemplateTupleDesc(2);
+		desc = CreateTemplateTupleDesc(2);
 		
 		TupleDescCopyEntry(desc, (AttrNumber) 1, scan->indexRelation->rd_att, (AttrNumber) 1);
 		TupleDescInitEntry(desc, (AttrNumber) 2, "distance", FLOAT8OID, -1, 0);
@@ -478,6 +481,8 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	}
 
 	if(ivfflat_bgw) {
+		page_item* tmp;
+		
 		//elog(WARNING,"[DEBUG]: slot %d,%d",ret->pos,ret->returns);
 		if (ret->pos == ret->returns || ret->returns == 0) {
 			if(ret->next != NULL) {
@@ -491,7 +496,7 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			}
 		}
 		// ToDo: Do not return page_item but only ItemPointer
-		page_item* tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
+		tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
 		heaptid = (ItemPointer) &tmp->ipd;
 		ret->pos++;
 	} else

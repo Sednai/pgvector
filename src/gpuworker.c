@@ -19,6 +19,9 @@ bool got_signal = false;
 
 static worker_data_head *worker_head = NULL;
 
+void sigTermHandler(SIGNAL_ARGS);
+void pgv_gpuworker_main(Datum main_arg);
+
 /* shmem hook */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static void pgv_shmem_request(void);
@@ -26,8 +29,7 @@ static void pgv_shmem_request(void);
 /*
  * Init shared memory
  */
-void
-init_shared_mem(void)
+void init_shared_mem(void)
 {
 	if (!process_shared_preload_libraries_in_progress)
 			return;
@@ -37,8 +39,7 @@ init_shared_mem(void)
 }
 
 /* Reserve shared memory */
-static void
-pgv_shmem_request(void)
+static void pgv_shmem_request(void)
 {
 	if (prev_shmem_request_hook)
 		prev_shmem_request_hook();
@@ -47,22 +48,29 @@ pgv_shmem_request(void)
 	RequestNamedLWLockTranche("pgv_background_worker", 1);
 }
 
-void
-sigTermHandler(SIGNAL_ARGS)
+void sigTermHandler(SIGNAL_ARGS)
 {
     elog(WARNING,"pgv_gpuworker received sigterm");
 	got_signal = true;
 	SetLatch(MyLatch);
 }
 
-worker_data_head*
-launch_gpuworker()
+worker_data_head* launch_gpuworker()
 {	
+    char* WORKER_LIB = "$libdir/vector.so";
+    
+    BackgroundWorker worker;
+    BackgroundWorkerHandle *handle;
+    BgwHandleStatus status;
+    bool found = false;
+    
+    pid_t		pid;
+    
     char buf[BGW_MAXLEN];
+    
     snprintf(buf, BGW_MAXLEN, "pgv_gpuworker");
 
 	/* initialize worker data header */
-    bool found = false;
     
     worker_head = ShmemInitStruct(buf,
 								   sizeof(worker_data_head),
@@ -87,19 +95,12 @@ launch_gpuworker()
 		dlist_push_tail(&worker_head->free_list,&worker_head->list_data[i].node);
 	}
 
-    BackgroundWorker worker;
-    BackgroundWorkerHandle *handle;
-    BgwHandleStatus status;
-    pid_t		pid;
-    
     memset(&worker, 0, sizeof(worker));
     worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
     worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
     worker.bgw_restart_time = BGW_NEVER_RESTART; 
 
-    char* WORKER_LIB = "$libdir/vector.so";
-    
-    sprintf(worker.bgw_library_name, WORKER_LIB);
+    strcpy(worker.bgw_library_name, WORKER_LIB);
     sprintf(worker.bgw_function_name, "pgv_gpuworker_main");
     
     snprintf(worker.bgw_name, BGW_MAXLEN, "%s",buf);
@@ -139,6 +140,7 @@ void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, i
     OffsetNumber maxoffno;
     Buffer cbuf;
     Page cpage;
+    Vector *v;
 
     while (BlockNumberIsValid(page))
     {
@@ -150,7 +152,7 @@ void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, i
         for (offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
             itup = (IndexTuple) PageGetItem(cpage, PageGetItemId(cpage, offno));
             
-            Vector *v = PointerGetDatum( index_getattr(itup, 1, tupdesc, &isnull) );
+            v = (Vector*) PointerGetDatum( index_getattr(itup, 1, tupdesc, &isnull) );
            
             // Store
             if(!use_triangle) {
@@ -176,25 +178,31 @@ void load_index(RelFileNode node, TupleDesc tupdesc, bool use_triangle ) {
     //if(true) {  
         BlockNumber nextblkno = IVFFLAT_HEAD_BLKNO;
 	    Buffer cbuf;
+        Page cpage;
+        Vector *c;
+        int pn;
 
         while (BlockNumberIsValid(nextblkno))
 	    {
+            OffsetNumber offno;
+            OffsetNumber maxoffno;
+            BlockNumber spage;
+
             cbuf = ReadBufferWithoutRelcache(node, MAIN_FORKNUM, nextblkno, RBM_NORMAL, NULL, true);
             LockBuffer(cbuf, BUFFER_LOCK_SHARE);
-            Page cpage = BufferGetPage(cbuf);
-            OffsetNumber maxoffno = PageGetMaxOffsetNumber(cpage);
-            OffsetNumber offno;
-
+            cpage = BufferGetPage(cbuf);
+            maxoffno = PageGetMaxOffsetNumber(cpage);
+            
             for (offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno))
 		    {
                 IvfflatList list = (IvfflatList) PageGetItem(cpage, PageGetItemId(cpage, offno));
                 
-                Vector *c = PointerGetDatum(&list->center);
+                c = (Vector*) PointerGetDatum(&list->center);
 
                 // Store as new probe
-                int pn = new_probe(node, c, use_triangle); 
+                pn = new_probe(node, c, use_triangle); 
 
-                BlockNumber spage = list->startPage;
+                spage = list->startPage;
                 
                 load_index_members(node, spage, tupdesc, pn, use_triangle);
             }
@@ -207,15 +215,14 @@ void load_index(RelFileNode node, TupleDesc tupdesc, bool use_triangle ) {
 }
 
 
-void
-pgv_gpuworker_main(Datum main_arg)
+void pgv_gpuworker_main(Datum main_arg)
 {
+	bool found;
     
 	char buf[BGW_MAXLEN];
 	snprintf(buf, BGW_MAXLEN, "%s", MyBgworkerEntry->bgw_name); 
 
 	// Attach to shared memory
-	bool found;
 	worker_head = ShmemInitStruct(MyBgworkerEntry->bgw_name,
 								   sizeof(worker_data_head),
 								   &found);
@@ -247,14 +254,16 @@ pgv_gpuworker_main(Datum main_arg)
 	 */
 	while(!got_signal)
 	{
-		int			ret;
+        dlist_node* dnode;
+        worker_exec_entry* entry;
 
         SpinLockAcquire(&worker_head->lock);
        
         if (dlist_is_empty(&worker_head->exec_list))
         {
+            int ev;
             SpinLockRelease(&worker_head->lock);
-		    int ev = WaitLatch(MyLatch,
+		    ev = WaitLatch(MyLatch,
                             WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
                             10 * 1000L,
                             PG_WAIT_EXTENSION);
@@ -269,8 +278,8 @@ pgv_gpuworker_main(Datum main_arg)
         /*
             Exec task
         */       
-        dlist_node* dnode = dlist_pop_head_node(&worker_head->exec_list);
-        worker_exec_entry* entry = dlist_container(worker_exec_entry, node, dnode);
+        dnode = dlist_pop_head_node(&worker_head->exec_list);
+        entry = dlist_container(worker_exec_entry, node, dnode);
 
      	SpinLockRelease(&worker_head->lock);
 
@@ -336,12 +345,15 @@ worker_exec_entry* get_return_slot(worker_data_head* worker, int taskid) {
 			
     while(!got_signal)
     {
+        worker_exec_entry* ret;
+      
         SpinLockAcquire(&worker->lock);
     
         if (dlist_is_empty(&worker->return_list))
         {
+            int ev;
             SpinLockRelease(&worker->lock);
-            int ev = WaitLatch(MyLatch,
+            ev = WaitLatch(MyLatch,
                             WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
                             1 * 1000L,
                             PG_WAIT_EXTENSION);
@@ -353,7 +365,6 @@ worker_exec_entry* get_return_slot(worker_data_head* worker, int taskid) {
             continue;
         }
 
-        worker_exec_entry* ret;
         dlist_foreach(iter, &worker->return_list) {
             ret = dlist_container(worker_exec_entry, node, iter.cur);
 
@@ -376,6 +387,6 @@ worker_exec_entry* get_return_slot(worker_data_head* worker, int taskid) {
 
 void free_slot(worker_data_head* worker, worker_exec_entry* entry) {
     SpinLockAcquire(&worker->lock);
-    dlist_push_tail(&worker->free_list,entry);           
+    dlist_push_tail(&worker->free_list,&entry->node);           
     SpinLockRelease(&worker->lock);          
 }
