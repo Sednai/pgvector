@@ -64,6 +64,10 @@
 
 /* Variables */
 extern int	ivfflat_probes;
+#ifdef AERO
+extern bool ivfflat_bgw;
+extern bool ivfflat_gpu;
+#endif
 
 typedef struct VectorArrayData
 {

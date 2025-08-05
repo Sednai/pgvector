@@ -3,7 +3,7 @@ EXTVERSION = 0.3.2
 
 MODULE_big = vector
 DATA = $(wildcard sql/*--*.sql)
-OBJS = src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o
+OBJS = src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o src/gpuworker.o src/gpucache.o
 
 TESTS = $(wildcard test/sql/*.sql)
 REGRESS = $(patsubst test/sql/%.sql,%,$(TESTS))
@@ -21,7 +21,11 @@ endif
 # For auto-vectorization:
 # - GCC (needs -ftree-vectorize OR -O3) - https://gcc.gnu.org/projects/tree-ssa/vectorization.html
 # - Clang (could use pragma instead) - https://llvm.org/docs/Vectorizers.html
-PG_CFLAGS += $(OPTFLAGS) -ftree-vectorize -fassociative-math -fno-signed-zeros -fno-trapping-math
+PG_CFLAGS += $(OPTFLAGS) -ftree-vectorize -fassociative-math -fno-signed-zeros -fno-trapping-math -DAERO -g -march=native -O3
+
+# AERO
+PG_CXXFLAGS += -std=c++11 -DAERO -g -O3
+PG_CPPFLAGS += -fPIC -DAERO -g -O3
 
 # Debug GCC auto-vectorization
 # PG_CFLAGS += -fopt-info-vec
@@ -42,6 +46,14 @@ include $(PGXS)
 
 # for Postgres 15
 PROVE_FLAGS += -I ./test/perl
+
+# AERO
+aero:	all
+	g++ $(PG_CXXFLAGS) -march=native -shared -o vector.so src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o src/gpuworker.o src/gpucache.o
+cuda:	all
+	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp
+	nvcc $(PG_CXXFLAGS) -I$(includedir_server)  --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
+	nvcc $(PG_CXXFLAGS) -Xcompiler="-march=native" -DGPU -shared -o vector.so src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o	
 
 prove_installcheck:
 	rm -rf $(CURDIR)/tmp_check

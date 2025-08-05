@@ -15,6 +15,15 @@
 #include "catalog/pg_type.h"
 #endif
 
+#ifdef AERO
+#include "executor/executor.h"
+#include "gpuworker.h"
+
+worker_data_head* worker = NULL;
+worker_exec_entry* ret = NULL;
+#endif
+
+
 /*
  * Compare list distances
  */
@@ -276,6 +285,16 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	{
 		Datum		value;
 
+#ifdef AERO
+		/* 
+		 * Start background worker if not started yet
+		 */
+		if (ivfflat_bgw) {
+			/* GPU background worker init */
+			worker =  launch_gpuworker();
+		}
+#endif
+
 		/* Safety check */
 		if (scan->orderByData == NULL)
 			elog(ERROR, "cannot scan ivfflat index without order");
@@ -283,6 +302,94 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 		/* No items will match if null */
 		if (scan->orderByData->sk_flags & SK_ISNULL)
 			return false;
+
+#ifdef AERO
+		if(ivfflat_bgw) {
+			char* pos;
+			Vector* v;
+			TupleDesc desc;
+	
+			/*
+				* Start job on background worker and wait for return
+				*/
+			worker_exec_entry* entry = get_free_slot(worker);
+			if(entry == NULL)
+				elog(ERROR,"No free slot available for pg_vector background worker");
+				
+			// Check for special operator
+			if(scan->orderByData->sk_strategy == 2) {
+				HeapTupleHeader t = DatumGetHeapTupleHeader(DatumGetPointer(scan->orderByData->sk_argument));
+				bool isnull;	
+				value = GetAttributeByNum(t, 1, &isnull);
+				if(isnull)
+					elog(ERROR,"Vector in advanced type can not be null !");	
+			
+				entry->op = DatumGetInt32( GetAttributeByNum(t, 2, &isnull) ); 
+				entry->filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
+				entry->filter = entry->filter*entry->filter; // Squared because we use squared distance for gpu functions
+	
+			} else {
+				
+				value = scan->orderByData->sk_argument;
+
+				if (so->normprocinfo != NULL)
+				{
+					/* No items will match if normalization fails */
+					if (!IvfflatNormValue(so->normprocinfo, so->collation, &value, NULL))
+						return false;
+				}
+	
+				entry->op = -100;
+				entry->filter = 0;
+			}
+	
+			// Set job data
+			entry->notify_latch = MyLatch;
+			entry->nodeid = scan->indexRelation->rd_node;
+			entry->probes = so->probes;
+			entry->usegpu = ivfflat_gpu;
+			entry->usetriangle = false;
+			pos = entry->data;
+	
+			// Copy vec to data
+			v = DatumGetVector(value);
+			entry->vec_dim = v->dim;
+			memcpy(pos, v->x, v->dim*sizeof(float));
+			entry->vector = (float*) pos;
+			pos += v->dim*sizeof(float);
+	
+			// ToDo: Read TupDesc directly from relation in gpuworker !!!
+	
+			// Copy tupledesc to data	
+			entry->tupdesc = (TupleDesc) pos;
+#if PG_VERSION_NUM >= 120000
+			desc = CreateTemplateTupleDesc(2);
+#else
+			desc = CreateTemplateTupleDesc(2, false);
+#endif
+			TupleDescCopyEntry(desc, (AttrNumber) 1, scan->indexRelation->rd_att, (AttrNumber) 1);
+			TupleDescInitEntry(desc, (AttrNumber) 2, "distance", FLOAT8OID, -1, 0);
+	
+			memcpy(pos, desc, sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute) );		
+			pos += sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute);
+		
+			//memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute) );		
+			//pos += sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute);
+		
+			put_slot(worker, entry);
+	
+			// Get result
+			ret = get_return_slot(worker,entry->taskid);
+	
+			if(ret->returns == -1) {
+				elog(ERROR,"Too many returns. Increase MAX_DATA in ivfgpu.h");
+			}	
+	
+		} else {
+			if(scan->orderByData->sk_strategy == 2) 
+				elog(ERROR,"<!> operator only supported with background worker. Set ivfflat.bgw = 1.");
+#endif
+
 
 		value = scan->orderByData->sk_argument;
 
@@ -295,6 +402,10 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 
 		IvfflatBench("GetScanLists", GetScanLists(scan, value));
 		IvfflatBench("GetScanItems", GetScanItems(scan, value));
+#ifdef AERO
+	}
+#endif
+
 		so->first = false;
 
 		/* Clean up if we allocated a new value */
@@ -343,6 +454,18 @@ ivfflatendscan(IndexScanDesc scan)
 {
 	IvfflatScanOpaque so = (IvfflatScanOpaque) scan->opaque;
 
+#ifdef AERO
+	if(ivfflat_bgw) {
+		if(ret != NULL && worker != NULL)
+			// ToDo: Free all remaining slots in chain ! 	
+			while(ret != NULL) {
+				worker_exec_entry* tmp = ret;
+				ret = ret->next;		
+				free_slot(worker,tmp);
+				//elog(WARNING,"[DEBUG]: end slot freed");
+			}
+	}
+#endif
 	/* Release pin */
 	if (BufferIsValid(so->buf))
 		ReleaseBuffer(so->buf);

@@ -7,12 +7,20 @@
 #include "ivfflat.h"
 #include "utils/guc.h"
 #include "utils/selfuncs.h"
+#ifdef AERO
+#include "gpuworker.h"
+#endif
 
 #if PG_VERSION_NUM >= 120000
 #include "commands/progress.h"
 #endif
 
 int			ivfflat_probes;
+#ifdef AERO
+bool 		ivfflat_bgw;
+bool        ivfflat_gpu;
+#endif
+
 static relopt_kind ivfflat_relopt_kind;
 
 /*
@@ -32,6 +40,15 @@ _PG_init(void)
 	DefineCustomIntVariable("ivfflat.probes", "Sets the number of probes",
 							"Valid range is 1..lists.", &ivfflat_probes,
 							1, 1, IVFFLAT_MAX_LISTS, PGC_USERSET, 0, NULL, NULL, NULL);
+#ifdef AERO
+	DefineCustomBoolVariable("ivfflat.bgw", "Enable background worker",
+							NULL, &ivfflat_bgw,
+							false, PGC_USERSET, 0, NULL, NULL, NULL);
+	DefineCustomBoolVariable("ivfflat.gpu", "Use GPU",
+							NULL, &ivfflat_gpu,
+							false, PGC_USERSET, 0, NULL, NULL, NULL);					
+#endif
+						
 }
 
 /*
@@ -112,12 +129,22 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	costs.indexTotalCost *= ratio;
 
 	/* Startup cost and total cost are same */
+#ifndef AERO
 	*indexStartupCost = costs.indexTotalCost;
 	*indexTotalCost = costs.indexTotalCost;
 	*indexSelectivity = costs.indexSelectivity;
+#else
+*indexStartupCost = 0;
+*indexTotalCost = 0;
+*indexSelectivity = 0.0001;
+#endif
 	*indexCorrelation = costs.indexCorrelation;
 #if PG_VERSION_NUM >= 100000
+#ifndef AERO
 	*indexPages = costs.numIndexPages;
+#else
+	*indexPages = 3;
+#endif
 #endif
 }
 

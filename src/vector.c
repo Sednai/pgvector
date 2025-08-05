@@ -11,6 +11,11 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/numeric.h"
+#ifdef AERO
+#include "gpuworker.h"
+#include "executor/executor.h"
+#include "storage/shmem.h"
+#endif
 
 #if PG_VERSION_NUM >= 120000
 #include "utils/float.h"
@@ -704,3 +709,76 @@ vector_cmp(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT32(vector_cmp_internal(a, b));
 }
+
+#ifdef AERO
+/*
+ * Get the L2 distance for vector <!> vector_adv 
+ */
+PG_FUNCTION_INFO_V1(l2_distance_adv);
+Datum
+l2_distance_adv(PG_FUNCTION_ARGS)
+{
+	Vector	   *a = PG_GETARG_VECTOR_P(0);
+	HeapTupleHeader t = DatumGetHeapTupleHeader( PG_GETARG_DATUM(1) );
+    Vector	   *b; 
+	double		distance = 0.0;
+	double		diff;
+	                       
+	bool isnull;
+
+	Datum attr = GetAttributeByNum(t, 1, &isnull);
+	                        
+	if(isnull)
+		PG_RETURN_FLOAT8(NAN);
+	
+	b = DatumGetVector(attr);
+	
+	CheckDims(a, b);
+
+	for (int i = 0; i < a->dim; i++)
+	{
+		diff = a->x[i] - b->x[i];
+		distance += diff * diff;
+	}
+
+	PG_RETURN_FLOAT8(sqrt(distance));
+}
+
+/*
+ * Kill the background worker 
+ */
+PG_FUNCTION_INFO_V1(kill_pgv_worker);
+Datum
+kill_pgv_worker(PG_FUNCTION_ARGS) {
+    bool found = false;
+    int ret = 0;
+	worker_data_head* worker_head;
+
+    // Get global data structure
+    char buf[BGW_MAXLEN];
+    snprintf(buf, BGW_MAXLEN, "pgv_gpuworker"); 
+         
+    worker_head = ShmemInitStruct(buf,
+                                sizeof(worker_data_head),
+                                &found);
+    if(!found) {
+        elog(ERROR,"Can not kill worker if not started yet (shared mem blank)");
+    }
+    
+    SpinLockAcquire(&worker_head->lock);
+    
+    if(worker_head->pid != 0) {
+        int err = kill( worker_head->pid, SIGTERM);
+        if(err == 0) {
+            ret +=1;
+            worker_head->pid = 0;
+        } else 
+            elog(ERROR,"Worker with pid %d could not be killed (%d)",worker_head->pid,err);        
+    } else 
+        elog(ERROR,"Worker with invalid pid. Already killed?");       
+
+    SpinLockRelease(&worker_head->lock);   
+    
+    PG_RETURN_INT32(ret);
+}
+#endif
