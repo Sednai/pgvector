@@ -129,22 +129,12 @@ ivfflatcostestimate(PlannerInfo *root, IndexPath *path, double loop_count,
 	costs.indexTotalCost *= ratio;
 
 	/* Startup cost and total cost are same */
-#ifndef AERO
 	*indexStartupCost = costs.indexTotalCost;
 	*indexTotalCost = costs.indexTotalCost;
 	*indexSelectivity = costs.indexSelectivity;
-#else
-*indexStartupCost = 0;
-*indexTotalCost = 0;
-*indexSelectivity = 0.0001;
-#endif
 	*indexCorrelation = costs.indexCorrelation;
 #if PG_VERSION_NUM >= 100000
-#ifndef AERO
 	*indexPages = costs.numIndexPages;
-#else
-	*indexPages = 3;
-#endif
 #endif
 }
 

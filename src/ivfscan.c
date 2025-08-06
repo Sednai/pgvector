@@ -362,19 +362,18 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 	
 			// Copy tupledesc to data	
 			entry->tupdesc = (TupleDesc) pos;
-#if PG_VERSION_NUM >= 120000
-			desc = CreateTemplateTupleDesc(2);
-#else
-			desc = CreateTemplateTupleDesc(2, false);
-#endif
-			TupleDescCopyEntry(desc, (AttrNumber) 1, scan->indexRelation->rd_att, (AttrNumber) 1);
-			TupleDescInitEntry(desc, (AttrNumber) 2, "distance", FLOAT8OID, -1, 0);
-	
-			memcpy(pos, desc, sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute) );		
-			pos += sizeof(*desc) + desc->natts*sizeof(FormData_pg_attribute);
+
+			memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att));		
+			pos += sizeof(*scan->indexRelation->rd_att);
 		
-			//memcpy(pos,scan->indexRelation->rd_att, sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute) );		
-			//pos += sizeof(*scan->indexRelation->rd_att) + scan->indexRelation->rd_att->natts*sizeof(FormData_pg_attribute);
+			entry->tupdesc->attrs = pos;
+			pos += scan->indexRelation->rd_att->natts*sizeof(Form_pg_attribute);
+
+			for(int i = 0; i < scan->indexRelation->rd_att->natts; i++) {
+				entry->tupdesc->attrs[i] = pos;
+				memcpy(pos,scan->indexRelation->rd_att->attrs[i], sizeof(FormData_pg_attribute));
+				pos += sizeof(FormData_pg_attribute);
+			}
 		
 			put_slot(worker, entry);
 	
@@ -407,11 +406,45 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 #endif
 
 		so->first = false;
-
+#ifdef AERO
+		if(!ivfflat_bgw)
+#endif
 		/* Clean up if we allocated a new value */
 		if (value != scan->orderByData->sk_argument)
 			pfree(DatumGetPointer(value));
 	}
+
+#ifdef AERO
+if(ivfflat_bgw) {
+	page_item* tmp;
+	
+	//elog(WARNING,"[DEBUG]: slot %d,%d",ret->pos,ret->returns);
+	if (ret->pos == ret->returns || ret->returns == 0) {
+		if(ret->next != NULL) {
+			// Free and set next;
+			worker_exec_entry* tmp = ret;
+			ret = ret->next;
+			free_slot(worker,tmp);
+			//elog(WARNING,"[DEBUG]: slot freed");
+		} else {
+			return false;
+		}
+	}
+	// ToDo: Do not return page_item but only ItemPointer
+	tmp = (page_item*) &ret->data[ret->pos*sizeof(page_item)];
+	ItemPointer heaptid = (ItemPointer) &tmp->ipd;
+	ret->pos++;
+
+#if PG_VERSION_NUM >= 120000
+	scan->xs_heaptid = *heaptid;
+#else
+	scan->xs_ctup.t_self = *heaptid;
+#endif
+	
+	scan->xs_recheckorderby = false;
+	return true;
+} 
+#endif
 
 #if PG_VERSION_NUM >= 100000
 	if (tuplesort_gettupleslot(so->sortstate, true, false, so->slot, NULL))
