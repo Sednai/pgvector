@@ -268,12 +268,21 @@ class probes {
 
         vector<int> get_ordered_probes_idx(float* q) {
             
+            // Pre-calculate q <-> probe distances
+            float* dist = (float*) malloc(PROBES.size()*sizeof(float));
+            
+            for(long unsigned int i = 0; i < PROBES.size(); i++) {
+                dist[i] = squared_eucl_dist( PROBES[i]->probe, q, PROBES[i]->dim);
+            }
+
+            // Build sorted index
             vector<int> idx(PROBES.size());
             iota(idx.begin(), idx.end(), 0);
             
-            vector<probe_entry*> *P = &PROBES;
-            sort(idx.begin(), idx.end(),[&P,&q](int i1, int i2) { return squared_eucl_dist(P[0][i1]->probe,q,P[0][i1]->dim) < squared_eucl_dist(P[0][i2]->probe,q,P[0][i2]->dim); });
+            sort(idx.begin(), idx.end(),[&dist,&q](int i1, int i2) { return dist[i1] < dist[i2]; });
             
+            free(dist);
+
             return idx;
         }
 
@@ -466,7 +475,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
 
 //cout << "[DEBUG] slots needed: " << N << " (" << RET.length << ")" << endl;
         
-        // Request N slots
+        // Request N-1 additional slots
         worker_exec_entry* slots[N-1];
         bool fail = false;
         for(int i = 0; i < N-1; i++) {
@@ -513,8 +522,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
 
         slots[N-2]->next = NULL;
         slots[N-2]->pos = 0;
-        memcpy(slots[N-2]->data, RET.data+(N-2)*Np,slots[N-2]->returns*sizeof(page_item) );
-        
+        memcpy(slots[N-2]->data, RET.data+(N-1)*Np,slots[N-2]->returns*sizeof(page_item) );
     }
 
     // Free
@@ -671,12 +679,12 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
             slots[i]->pos = 0;
             
             for(int n = 0; n < Np; n++) {
-                probe_entry* E = P->get( idx[ d_r_cpu[n].probe]  );
+                probe_entry* E = P->get( idx[ d_r_cpu[ (i+1)*Np + n].probe]  );
                 page_item* I = &((page_item*) slots[i]->data)[n];
 
-                I->distance = d_r_cpu[n].distance;
-                I->ipd = E->getItemPointerData( d_r_cpu[n].pos );
-                I->searchPage = E->getPage( d_r_cpu[n].pos );
+                I->distance = d_r_cpu[(i+1)*Np +n].distance;
+                I->ipd = E->getItemPointerData( d_r_cpu[(i+1)*Np +n].pos );
+                I->searchPage = E->getPage( d_r_cpu[(i+1)*Np +n].pos );
             }
         }
 
@@ -689,12 +697,12 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
         slots[N-2]->pos = 0;
 
         for(int n = 0; n < slots[N-2]->returns; n++) {
-            probe_entry* E = P->get( idx[ d_r_cpu[n].probe]  );
+            probe_entry* E = P->get( idx[ d_r_cpu[ (N-1)*Np+n].probe]  );
             page_item* I = &((page_item*) slots[N-2]->data)[n];
 
-            I->distance = d_r_cpu[n].distance;
-            I->ipd = E->getItemPointerData( d_r_cpu[n].pos );
-            I->searchPage = E->getPage( d_r_cpu[n].pos );
+            I->distance = d_r_cpu[(N-1)*Np+n].distance;
+            I->ipd = E->getItemPointerData( d_r_cpu[(N-1)*Np+n].pos );
+            I->searchPage = E->getPage( d_r_cpu[(N-1)*Np+n].pos );
         }
     }
 
