@@ -166,7 +166,7 @@ class probe_entry {
             memcpy(&vectors_cpu[dim*length], v->x, v->dim*sizeof(float));
             pages[length] = page;
             itdata[length] = ipd;
-    
+
             length++;
         }
 
@@ -184,7 +184,7 @@ class probe_entry {
             pages[length] = page;
             itdata[length] = ipd;
             centroid_distance[length] = sqrt(distance); // Note: its stored squared
-
+       
             length++;
         }
  
@@ -195,7 +195,24 @@ class probe_entry {
         const float* getVectorCPU(long idx) {
             return &vectors_cpu[idx*dim];
         }
-        
+
+/*
+        void printVectorCPU(long idx) {
+            cout << "[ ";
+            for(int i = 0; i < dim; i++) {
+                cout << vectors_cpu[idx*dim+i] << " ";
+            }
+            cout << "]" << endl;
+        }
+
+        void printVectorRaw(float *f) {
+            cout << "[ ";
+            for(int i = 0; i < dim; i++) {
+                cout << f[i] << " ";
+            }
+            cout << "]" << endl;
+        }
+*/
         float getCentroidDistanceCPU(long idx) {
             return centroid_distance[idx];
         }
@@ -440,6 +457,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
                 continue;
             }
             float dist = squared_eucl_dist(q, E->getVectorCPU(j), dim);
+            //E->printVectorCPU(j);
             //cout << j << ": true dist: " << sqrt(dist) << endl;
             // Filter
             if(!filter_func(dist,filter,op))

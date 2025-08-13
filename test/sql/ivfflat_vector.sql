@@ -17,6 +17,26 @@ SELECT * FROM t ORDER BY val <-> '[3,3,3]';
 
 DROP TABLE t;
 
+-- AERO
+CREATE TABLE t (val vector(3));
+INSERT INTO t (val) VALUES ('[0,0,0]'), ('[1,2,3]'), ('[1,1,1]');
+CREATE INDEX ON t USING ivfflat (val vector_l2_ops) WITH (lists = 1);
+
+SET ivfflat.bgw = 1;
+SELECT * FROM t ORDER BY val <-> '[3,3,3]';
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-100,0);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4.5);
+
+SET ivfflat.gpu = 1;
+SELECT * FROM t ORDER BY val <-> '[3,3,3]';
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-100,0);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4.5);
+
+SET ivfflat.bgw = 0;
+SET ivfflat.gpu = 0;
+
+DROP TABLE t;
+
 -- inner product
 
 CREATE TABLE t (val vector(3));

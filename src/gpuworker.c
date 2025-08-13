@@ -152,7 +152,7 @@ void load_index_members(RelFileNode node, BlockNumber page, TupleDesc tupdesc, i
         for (offno = FirstOffsetNumber; offno <= maxoffno; offno = OffsetNumberNext(offno)) {
             itup = (IndexTuple) PageGetItem(cpage, PageGetItemId(cpage, offno));
             
-            v = (Vector*) PointerGetDatum( index_getattr(itup, 1, tupdesc, &isnull) );
+            v = DatumGetVector( index_getattr(itup, 1, tupdesc, &isnull) );
            
             // Store
             if(!use_triangle) {
