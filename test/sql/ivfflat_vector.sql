@@ -25,12 +25,20 @@ CREATE INDEX ON t USING ivfflat (val vector_l2_ops) WITH (lists = 1);
 SET ivfflat.bgw = 1;
 SELECT * FROM t ORDER BY val <-> '[3,3,3]';
 SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-100,0);
-SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4.5);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',1,4);
+SELECT * FROM t ORDER BY val <!> ('[0,0,0]',0,0);
+SELECT * FROM t ORDER BY val <!> ('[0,0,1]',2,1);
+SELECT * FROM t ORDER BY val <!> ('[0,0,0.5]',-2,1.5);
 
 SET ivfflat.gpu = 1;
 SELECT * FROM t ORDER BY val <-> '[3,3,3]';
 SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-100,0);
-SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4.5);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',-1,4);
+SELECT * FROM t ORDER BY val <!> ('[3,3,3]',1,4);
+SELECT * FROM t ORDER BY val <!> ('[0,0,0]',0,0);
+SELECT * FROM t ORDER BY val <!> ('[0,0,1]',2,1);
+SELECT * FROM t ORDER BY val <!> ('[0,0,0.5]',-2,1.5);
 
 SET ivfflat.bgw = 0;
 SET ivfflat.gpu = 0;
