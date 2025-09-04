@@ -46,9 +46,11 @@ __global__ void calc_squared_euclidean_distances_wsfilter_v0(float* M, float* V,
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
     
     __syncthreads();
     
@@ -75,9 +77,11 @@ __global__ void calc_squared_euclidean_distances_wseqfilter_v0(float* M, float* 
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
     
     __syncthreads();
     
@@ -104,10 +108,12 @@ __global__ void calc_squared_euclidean_distances_weqfilter_v0(float* M, float* V
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
-    
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
+
     __syncthreads();
     
     for(k=indexx; k < N; k += stridex) {
@@ -133,9 +139,11 @@ __global__ void calc_squared_euclidean_distances_wlfilter_v0(float* M, float* V,
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
     
     __syncthreads();
     
@@ -162,10 +170,12 @@ __global__ void calc_squared_euclidean_distances_wleqfilter_v0(float* M, float* 
     unsigned int stridex = blockDim.x*gridDim.x;
     unsigned int k;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
-    
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
+
     __syncthreads();
     
     for(k=indexx; k < N; k += stridex) {
@@ -188,9 +198,11 @@ __global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_it
     unsigned int k;
     int pos = *p;
 
-    __shared__ float VL[THREADS_PER_BLOCK];
+    __shared__ float VL[2*THREADS_PER_BLOCK];
     if(threadIdx.x < L)
         VL[threadIdx.x] = V[threadIdx.x];
+    if(THREADS_PER_BLOCK+threadIdx.x < L)
+        VL[THREADS_PER_BLOCK+threadIdx.x] = V[THREADS_PER_BLOCK+threadIdx.x];
     
     __syncthreads();
     
@@ -210,7 +222,6 @@ __global__ void calc_squared_euclidean_distances_v0d(float* M, float* V, sort_it
     Calc euclidean distances and apply < filter
 */
 void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op) {
-    
     
     int NB = (N-1+THREADS_PER_BLOCK)/THREADS_PER_BLOCK;
 
@@ -232,10 +243,12 @@ void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item*
             calc_squared_euclidean_distances_wleqfilter_v0<<<NB,THREADS_PER_BLOCK>>>(M, V, C, f, p, N, L, probe);
             break;
         default:
-            calc_squared_euclidean_distances_v0d<<<NB,THREADS_PER_BLOCK>>>(M, V, C, p, N, L, probe);
             int pos;
+            
+            calc_squared_euclidean_distances_v0d<<<NB,THREADS_PER_BLOCK>>>(M, V, C, p, N, L, probe);
+            
             cudaMemcpy(&pos,p, sizeof(int), cudaMemcpyDeviceToHost);
             pos += N;
-            cudaMemcpy(p,&pos, sizeof(int), cudaMemcpyHostToDevice);
-    }       
+            cudaMemcpy(p,&pos, sizeof(int), cudaMemcpyHostToDevice); 
+    }
 }

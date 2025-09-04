@@ -65,7 +65,7 @@ aero:	all
 	g++ $(PG_CXXFLAGS) -march=native -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/gpucache.o
 cuda:	all
 	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp
-	nvcc $(PG_CXXFLAGS) -I$(includedir_server)  --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
+	nvcc $(PG_CXXFLAGS) -I$(includedir_server) --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
 	nvcc $(PG_CXXFLAGS) -Xcompiler="-march=native" -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o	
 sycl:	all
 	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp

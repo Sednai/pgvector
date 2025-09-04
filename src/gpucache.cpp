@@ -474,8 +474,19 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
 
     //cout << "prefiltered: " << pcount << endl;
 
-    // Sort
-    qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
+    if(entry->limit > 0) {
+        if(entry->limit > RET.length) 
+            entry->limit = RET.length;
+
+        nth_element(RET.data, RET.data + entry->limit, RET.data+RET.length,  [](const page_item& a, const page_item& b) { return a.distance < b.distance; }  );
+        qsort(RET.data, entry->limit, sizeof(page_item), compare_pi);
+        
+        if(entry->limit < RET.length) 
+            RET.length = entry->limit;
+    } else {
+        // Sort
+        qsort(RET.data, RET.length, sizeof(page_item), compare_pi);
+    }
 
     if(RET.length*sizeof(page_item) <= MAX_DATA ) {
         // Copy to return
@@ -583,6 +594,8 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
 
         L += E->size();
     }
+  
+    //cout << "[DEBUG](GPU): " << L << " (" << Np << "," << dim << "," << op << ")" << endl;
 
     // Store query vector on GPU
     float* d_q;
@@ -614,9 +627,14 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     // Copy back  
     // pos index
     copy_memory_to_cpu(&a, d_a, sizeof(int));
-   
+  
     // Sort on GPU
     sort_item_array_gpu(d_r, a); 
+
+    if(entry->limit > 0) {
+        if(entry->limit < a) 
+            a = entry->limit;
+    }
 
     sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));
     copy_memory_to_cpu(d_r_cpu, d_r, a*sizeof(sort_item));

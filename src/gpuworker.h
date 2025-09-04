@@ -24,6 +24,7 @@ typedef struct worker_exec_entry
     int probes;
     int op;
     float filter;
+    int limit;
     float* vector;
     int vec_dim;
     int returns;

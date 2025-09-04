@@ -30,7 +30,7 @@ CREATE TYPE vector (
 );
 
 -- AERO BEGIN
-CREATE TYPE vector_adv as (vec vector, op int, condval float4);
+CREATE TYPE vector_adv as (vec vector, op int, condval float4, int lmt);
 -- AERO END
 
 -- vector functions

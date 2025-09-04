@@ -37,7 +37,6 @@ Dropping a `WHERE` condition and only using instead the `<!>` operator in the `O
 Note the following current limitations of bgw:
 - No active memory management.
 - Return result set size limited by total shared memory (set at compile time with `MAX_DATA` and `MAX_QUEUE_LENGTH` )
-- Max vector dim set to 1024
  
 Note that bgw worker can be killed via `select kill_pgv_worker()` (currently the only way to release the reserved memory).
 

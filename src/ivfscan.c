@@ -407,11 +407,12 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			entry->op = DatumGetInt32( GetAttributeByNum(t, 2, &isnull) ); 
 			entry->filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
 			entry->filter = entry->filter*entry->filter; // Squared because we use squared distance for gpu functions
-
+			entry->limit = DatumGetInt32( GetAttributeByNum(t, 4, &isnull) ); 
 		} else {
 			value = GetScanValue(scan);
 			entry->op = -100;
 			entry->filter = 0;
+			entry->limit = -1;
 		}
 
 		// Set job data
