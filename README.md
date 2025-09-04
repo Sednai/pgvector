@@ -19,10 +19,10 @@ vector <!> vector_adv
 with
 
 ```tsql
-vector_adv = (vector,int,float)
+vector_adv = (vector,int,float,int)
 ```
 
-`int` specifies the filter operator and `float` the condition value
+`int` specifies the filter operator, `float` the condition value
 ```
 2: >=
 1: >
@@ -31,6 +31,7 @@ vector_adv = (vector,int,float)
 -2: <=
 -100: no filter
 ```
+and the last `int` a return limit to be enforced on the index scan level (set to `<= 0` to deactivate).
 
 Dropping a `WHERE` condition and only using instead the `<!>` operator in the `ORDER BY` will be significantly faster as less tuples have to be sorted and pushed into the database processing stream. Further, re-evaluation of distances inside Postgres for the `WHERE` clause will be skipped.
 
