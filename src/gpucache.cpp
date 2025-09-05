@@ -628,12 +628,19 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     // pos index
     copy_memory_to_cpu(&a, d_a, sizeof(int));
   
-    // Sort on GPU
-    sort_item_array_gpu(d_r, a); 
-
+   
     if(entry->limit > 0) {
+        if(entry->limit > a) 
+            entry->limit = a;
+
+        // nth-element sort
+        sort_item_array_nth_gpu(d_r,a,entry->limit);    
+
         if(entry->limit < a) 
             a = entry->limit;
+    } else {
+        // Sort on GPU
+        sort_item_array_gpu(d_r, a); 
     }
 
     sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));

@@ -33,6 +33,14 @@ struct cmp_item : public thrust::less<sort_item>
    }
 };
 
+void sort_item_array_nth_gpu(sort_item* P, int N, int k) {
+    /* 
+        At the time being, thrust does not have an nth element implementation. 
+        Do full sort instead
+    */
+    thrust::sort(thrust::device, P, P + N, cmp_item() );
+}
+
 void sort_item_array_gpu(sort_item* P, int N) {
     thrust::sort(thrust::device, P, P + N, cmp_item() );
 }

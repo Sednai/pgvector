@@ -36,6 +36,7 @@ extern void copy_memory_to_gpu(void* T, void* F, int size);
 extern void copy_memory_to_cpu(void* T, void* F, int size);
 extern void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op);
 extern void sort_item_array_gpu(sort_item* P, int N);
+extern void sort_item_array_nth_gpu(sort_item* P, int N, int k);
 #endif
 
 #endif

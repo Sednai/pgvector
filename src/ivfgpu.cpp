@@ -41,6 +41,15 @@ struct comparator {
     }
   };
 
+void sort_item_array_nth_gpu(sort_item* P, int N, int k) {
+    auto policy = oneapi::dpl::execution::make_device_policy(*Q);
+    
+    oneapi::dpl::nth_element(policy, P, P+k, P+N, comparator());
+    oneapi::dpl::sort(policy, P, P+k, comparator());
+    
+    Q->wait();
+}
+
 void sort_item_array_gpu(sort_item* P, int N) {
     auto policy = oneapi::dpl::execution::make_device_policy(*Q);
     
