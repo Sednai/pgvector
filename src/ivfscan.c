@@ -408,11 +408,36 @@ ivfflatgettuple(IndexScanDesc scan, ScanDirection dir)
 			entry->filter = DatumGetFloat4( GetAttributeByNum(t, 3, &isnull) );
 			entry->filter = entry->filter*entry->filter; // Squared because we use squared distance for gpu functions
 			entry->limit = DatumGetInt32( GetAttributeByNum(t, 4, &isnull) ); 
+			entry->distfunc = 0;
 		} else {
+			char* mod;
+			char* fn;
+
 			value = GetScanValue(scan);
 			entry->op = -100;
 			entry->filter = 0;
 			entry->limit = -1;
+
+			// Infer dist op
+			mod = palloc(128);
+			fn = palloc(128);
+			
+			fmgr_symbol(scan->orderByData->sk_func.fn_oid, &mod, &fn);
+			if(strcmp(fn,"l2_distance") == 0)
+				entry->distfunc = 0;
+			else if(strcmp(fn,"cosine_distance") == 0) {
+				entry->distfunc = 1;
+				if(ivfflat_triangle)
+					elog(ERROR,"Triangle relation not supported for cosine distance");
+			}
+			else {
+				pfree(mod);
+				pfree(fn);
+				elog(ERROR,"Distance function %s not supported yet in background worker",fn);
+			}
+
+			pfree(mod);
+			pfree(fn);		
 		}
 
 		// Set job data

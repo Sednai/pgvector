@@ -68,14 +68,17 @@ cuda:	all
 	nvcc $(PG_CXXFLAGS) -I$(includedir_server) --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o
 	nvcc $(PG_CXXFLAGS) -Xcompiler="-march=native" -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o	
 sycl:	all
-	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp
-	icpx $(PG_CXXFLAGS) -std=c++17 -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -I$(includedir_server) -fPIC -c src/ivfgpu.cpp -o src/ivfgpu.o
-	icpx $(PG_CXXFLAGS) -std=c++17 -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o 
+	g++ $(PG_CXXFLAGS)  -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp
+	icpx -std=c++17 -DAERO -g -O3 -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -I$(includedir_server) -fPIC -c src/ivfgpu.cpp -o src/ivfgpu.o
+	icpx -std=c++17 -DAERO -g -O3 -march=native -fsycl -fsycl-targets=nvptx64-nvidia-cuda -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o 
 opencl:	all
 	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -fPIC -c -o src/gpucache.o src/gpucache.cpp
-	icpx $(PG_CXXFLAGS) -std=c++17 -march=native -fsycl -I$(includedir_server) -fPIC -c src/ivfgpu.cpp -o src/ivfgpu.o
-	icpx $(PG_CXXFLAGS) -std=c++17 -march=native -fsycl -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o 
-
+	icpx -std=c++17 -DAERO -g -O3 -march=native -fsycl -I$(includedir_server) -fPIC -c src/ivfgpu.cpp -o src/ivfgpu.o
+	icpx -std=c++17 -DAERO -g -O3 -march=native -fsycl -DGPU -shared -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o 
+cuvs:	all
+	g++ $(PG_CXXFLAGS) -I$(includedir_server) -DGPU -DCUVS -fPIC -c -o src/gpucache.o src/gpucache.cpp
+	nvcc -DAERO -g -O3 --expt-relaxed-constexpr -I$(includedir_server) -DCUVS --compiler-options '-fPIC -march=native -shared' -c src/ivfgpu.cu -o src/ivfgpu.o -I/rhea/git/dlpack/include -I/rhea/git/raft/cpp/build/install/include -I/rhea/git/cuvs/cpp/build/install/include -DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE
+	nvcc -DAERO -g -O3 --expt-relaxed-constexpr -Xcompiler="-march=native" -DGPU -DCUVS -shared -L/rhea/git/raft/cpp/build -L/rhea/git/cuvs/cpp/build -lraft -lcuvs_c -o vector.so src/bitutils.o src/bitvec.o src/halfutils.o src/halfvec.o src/hnsw.o src/hnswbuild.o src/hnswinsert.o src/hnswscan.o src/hnswutils.o src/hnswvacuum.o src/ivfbuild.o src/ivfflat.o src/ivfinsert.o src/ivfkmeans.o src/ivfscan.o src/ivfutils.o src/ivfvacuum.o src/sparsevec.o src/vector.o src/gpuworker.o src/ivfgpu.o src/gpucache.o
 prove_installcheck:
 	rm -rf $(CURDIR)/tmp_check
 	cd $(srcdir) && TESTDIR='$(CURDIR)' PATH="$(bindir):$$PATH" PGPORT='6$(DEF_PGPORT)' PG_REGRESS='$(top_builddir)/src/test/regress/pg_regress' $(PROVE) $(PG_PROVE_FLAGS) $(PROVE_FLAGS) $(if $(PROVE_TESTS),$(PROVE_TESTS),test/t/*.pl)

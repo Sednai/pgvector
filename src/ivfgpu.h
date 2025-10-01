@@ -35,8 +35,17 @@ extern void free_gpu_memory(void* P);
 extern void copy_memory_to_gpu(void* T, void* F, int size);
 extern void copy_memory_to_cpu(void* T, void* F, int size);
 extern void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op);
+extern void calc_squared_distances_gpu_cosine(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op);
+#ifdef CUVS
+extern void sort_item_array_gpu(float* P, int* K, int N);
+extern void sort_item_array_nth_gpu(float* P, int* K, int N, int k);
+extern void calc_squared_euclidean_distances_cuvs(float* M, float* V, float* D, int* p, int N, int L, int probe);
+extern void calc_squared_cosine_distances_cuvs(float* M, float* V, float* D, int* p, int N, int L, int probe);
+#else
 extern void sort_item_array_gpu(sort_item* P, int N);
 extern void sort_item_array_nth_gpu(sort_item* P, int N, int k);
+#endif
+
 #endif
 
 #endif

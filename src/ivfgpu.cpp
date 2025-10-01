@@ -78,6 +78,30 @@ void calc_squared_euclidean_distances(float* M, float* V, sort_item* C, int* p, 
     Q->wait();
 }
 
+void calc_squared_cosine_distance(float* M, float* V, sort_item* D, int* p, int N, int L, int probe) {
+    
+    Q->parallel_for(range<1>(N),
+    [=](id<1> k){ 
+        int pos = *p;
+
+        float A = 0;
+        float B = 0;
+        float C = 0;
+
+        for(int i = 0; i < L; i++) {
+            A += M[L*k+i]*V[i];
+            B += M[L*k+i]*M[L*k+i];
+            C += V[i]*V[i];
+        }
+        
+        D[pos+k].distance = 1-A/std::sqrt(B)/std::sqrt(C);
+        D[pos+k].probe = probe;
+        D[pos+k].pos = k;
+       
+    });
+
+    Q->wait();
+}
 
 /*
     Squared euclidean distances with == filter
@@ -255,4 +279,22 @@ void calc_squared_distances_gpu_euclidean_wfilter(float* M, float* V, sort_item*
             Q->memcpy(p,&pos,sizeof(int));
             Q->wait();
     }       
+}
+
+/*
+    Calc euclidean distances and apply < filter
+*/
+void calc_squared_distances_gpu_cosine(float* M, float* V, sort_item* C, const float f, int* p, int N, int L, int probe, int op) {
+    
+    Q->wait();
+           
+    // Calc distance
+    calc_squared_euclidean_distances(M, V, C, p, N, L, probe);
+    
+    int pos;
+    Q->memcpy(&pos,p,sizeof(int));
+    Q->wait();
+    pos += N;
+    Q->memcpy(p,&pos,sizeof(int));
+    Q->wait();       
 }

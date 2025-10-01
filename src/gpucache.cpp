@@ -46,12 +46,33 @@ class RelHashFunc {
         }
 };
 
+
+typedef float (*distf)(const float*, const float*, int);
+#ifdef CUVS
+typedef void (*gpudistf)(float*, float*, float*, int*, int, int, int);
+#else
+typedef void (*gpudistf)(float*, float*, sort_item*, const float, int*, int, int, int, int);
+#endif
+
 __inline__ float squared_eucl_dist(const float* X, const float* Y, int N) {
-    float D = (X[0] - Y[0])*(X[0] - Y[0]);
-    for(int i = 1; i < N; i++) {
+    float D = 0;
+    for(int i = 0; i < N; i++) {
         D += (X[i] - Y[i])*(X[i] - Y[i]);
     }
     return D;
+}
+
+__inline__ float squared_cosine_dist(const float* X, const float* Y, int N) {
+    float A = 0;
+    float B = 0;
+    float C = 0;
+
+    for(int i = 0; i < N; i++) {
+        A += X[i]*Y[i];
+        B += X[i]*X[i];
+        C += Y[i]*Y[i];
+    }
+    return 1-A/sqrt(B)/sqrt(C);
 }
 
 static int compare_pi(const void* a, const void* b) {
@@ -283,13 +304,13 @@ class probes {
             return PROBES[p];
         }
 
-        vector<int> get_ordered_probes_idx(float* q) {
+        vector<int> get_ordered_probes_idx(float* q, distf fn) {
             
             // Pre-calculate q <-> probe distances
             float* dist = (float*) malloc(PROBES.size()*sizeof(float));
             
             for(long unsigned int i = 0; i < PROBES.size(); i++) {
-                dist[i] = squared_eucl_dist( PROBES[i]->probe, q, PROBES[i]->dim);
+                dist[i] = fn( PROBES[i]->probe, q, PROBES[i]->dim);
             }
 
             // Build sorted index
@@ -422,10 +443,24 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
 
     Relation R = {node};
     
+    // Set distance function
+    distf df;
+    switch(entry->distfunc) {
+        case 0:
+            df = &squared_eucl_dist;
+            break;
+        case 1:
+            df = &squared_cosine_dist;
+            break;
+        default:
+            df = &squared_eucl_dist;
+            break;
+    }
+
     // Get probes for relation
     probes *P = CACHE->get(R);
 
-    vector<int> idx = P->get_ordered_probes_idx(q);
+    vector<int> idx = P->get_ordered_probes_idx(q,df);
     
     page_list RET;
     RET.data = (page_item*) malloc(sizeof(page_item) * INIT_STORE_SIZE);
@@ -444,9 +479,10 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
         // Calc distance q to centroid
         float qdist;
         if(entry->usetriangle) {
-            qdist = sqrt( squared_eucl_dist(q, E->probe, dim) );
+            qdist = sqrt( df(q, E->probe, dim) );
             //cout << i << ": " << qdist << endl;
-        }
+        } else 
+            qdist = 0;
 
         // Loop over vectors    
         for(long j = 0; j < L; j++) {
@@ -456,7 +492,7 @@ int exec_query_cpu(worker_exec_entry* entry, worker_data_head* worker) {
                 pcount++;
                 continue;
             }
-            float dist = squared_eucl_dist(q, E->getVectorCPU(j), dim);
+            float dist = df(q, E->getVectorCPU(j), dim);
             //E->printVectorCPU(j);
             //cout << j << ": true dist: " << sqrt(dist) << endl;
             // Filter
@@ -570,11 +606,42 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     int dim = entry->vec_dim;
     char* return_data = entry->data;
     Relation R = {node};
-    
+   
+    // Set distance function
+    distf df;
+    gpudistf gdf;
+
+    switch(entry->distfunc) {
+        case 0:
+            df = &squared_eucl_dist;
+#ifdef CUVS
+            gdf = &calc_squared_euclidean_distances_cuvs;
+#else
+            gdf = &calc_squared_distances_gpu_euclidean_wfilter;
+#endif
+            break;
+        case 1:
+            df = &squared_cosine_dist;
+#ifdef CUVS
+            gdf = &calc_squared_cosine_distances_cuvs;
+#else
+            gdf = &calc_squared_distances_gpu_cosine;
+#endif
+            break;
+        default:
+            df = &squared_eucl_dist;
+#ifdef CUVS
+            gdf = &calc_squared_euclidean_distances_cuvs;
+#else
+            gdf = &calc_squared_distances_gpu_euclidean_wfilter;
+#endif
+            break;
+    }    
+
     // Get probes for relation
     probes *P = CACHE->get(R);
 
-    vector<int> idx = P->get_ordered_probes_idx(q);
+    vector<int> idx = P->get_ordered_probes_idx(q, df);
     
     Np = min(idx.size(), (size_t) Np);
 
@@ -602,47 +669,194 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     d_q = (float*) init_gpu_memory((void**) &d_q, dim*sizeof(float) );       
     copy_memory_to_gpu(d_q, q, dim*sizeof(float));
     
+#ifdef CUVS
+    float* d_r;
+    d_r = (float*) init_gpu_memory((void**) &d_r, L*sizeof(float) );
+    int* L_pos = (int*) malloc(L*sizeof(int));
+    int* I_pos = (int*) malloc(L*sizeof(int));
+
+    #else
     // pointer to on device distance results
     sort_item* d_r;
     d_r = (sort_item*) init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );
-    
+#endif
+
     // pointer to active position
     int a = 0;
+#ifndef CUVS
     int* d_a; 
     d_a = (int*) init_gpu_memory((void**) &d_a, sizeof(int) );
     copy_memory_to_gpu(d_a, &a, sizeof(int));
-
+#endif
     L = 0;
     for(int i = 0; i < Np; i++) {
         // Get entry
         probe_entry* E = P->get(idx[i]);
         int Ll = E->size();
        
+#ifdef CUVS
+        for(int j = 0; j < Ll; j++) {
+            (L_pos+L)[j] = i;
+            (I_pos+L)[j] = j;
+        }
+        gdf(E->getAllVectorsGPU(), d_q, d_r, &a, Ll, dim, i);
+#else
         // Calc distances + filter
-        calc_squared_distances_gpu_euclidean_wfilter(E->getAllVectorsGPU(), d_q, d_r, filter, d_a, Ll, dim, i, op); 
-
+        gdf(E->getAllVectorsGPU(), d_q, d_r, filter, d_a, Ll, dim, i, op); 
+#endif
         L += Ll;
     }
 
     // Copy back  
     // pos index
+#ifndef CUVS
     copy_memory_to_cpu(&a, d_a, sizeof(int));
-  
-   
+#endif
+
+#ifdef CUVS
+    // Note: Will not work like that with filter activated
+    int* I_idx = (int*) malloc(a*sizeof(int));
+    for(int i = 0; i < a; i++) {
+        I_idx[i] = i;
+    }
+    int* d_I;
+    d_I = (int*) init_gpu_memory((void**) &d_I, a*sizeof(int) );
+    copy_memory_to_gpu(d_I, I_idx, a*sizeof(int));
+#endif
+
     if(entry->limit > 0) {
         if(entry->limit > a) 
             entry->limit = a;
 
         // nth-element sort
-        sort_item_array_nth_gpu(d_r,a,entry->limit);    
-
+#ifdef CUVS
+        sort_item_array_nth_gpu(d_r, d_I, a, entry->limit);    
+#else
+        sort_item_array_nth_gpu(d_r, a, entry->limit);    
+#endif
         if(entry->limit < a) 
             a = entry->limit;
     } else {
         // Sort on GPU
+#ifdef CUVS
+        sort_item_array_gpu(d_r, d_I, a); 
+#else
         sort_item_array_gpu(d_r, a); 
+#endif
     }
 
+#ifdef CUVS
+    copy_memory_to_cpu(I_idx, d_I, a*sizeof(int));
+
+    if(a*sizeof(page_item) <= MAX_DATA ) {
+        for(int i = 0; i < a; i++) {
+            probe_entry* E = P->get( idx[ L_pos[  I_idx[i]  ]]  );
+            page_item* I = &((page_item*) return_data)[i];
+
+            I->distance = 0; // Note: Currently not used, so set to 0
+            
+            I->ipd = E->getItemPointerData( I_pos[ I_idx[i] ] );
+            I->searchPage = E->getPage( I_pos[ I_idx[i] ] );
+        }
+        entry->next = NULL;
+        entry->returns = a;
+        entry->pos = 0;
+
+    } else {
+        // Split into parts
+        int Np = MAX_DATA/sizeof(page_item);
+        int N = a/Np;
+        if (a % Np != 0)
+            N++;
+
+        //cout << "[DEBUG] slots needed: " << N << " (" << a << ","<< Np << ")" << endl;
+
+        // Request N slots
+        worker_exec_entry* slots[N-1];
+        bool fail = false;
+        for(int i = 0; i < N-1; i++) {
+            worker_exec_entry* tmp = get_free_slot(worker);
+            if(tmp != NULL)
+                slots[i] = tmp;
+            else {
+                slots[i] = NULL;
+                fail = true;
+                break;
+            }
+        }
+  
+        if(fail) {
+            //cout << "[DEBUG] slots: FAIL" << endl;
+
+            // Cleanup and return
+            for(int i = 0; i < N-1; i++) {
+                if(slots[i] != NULL)
+                    free_slot(worker, slots[i]);
+                else 
+                    break;
+            }
+            
+            // Cleanup
+            free_gpu_memory(d_q);
+            free_gpu_memory(d_r);
+            
+            free(L_pos);
+            free(I_pos);
+            free(I_idx);
+            free_gpu_memory(d_I);
+
+            return -1;
+        }
+
+        // Copy 1.
+        for(int i = 0; i < Np; i++) {
+            probe_entry* E = P->get( idx[ L_pos[ I_idx[i] ] ]  );
+            page_item* I = &((page_item*) return_data)[i];
+
+            I->distance = 0;
+            I->ipd = E->getItemPointerData( (long) I_pos[ I_idx[i] ] );
+            I->searchPage = E->getPage( I_pos[ I_idx[i] ] );
+        }
+        entry->next = slots[0];
+        entry->returns = Np;
+        entry->pos = 0;
+
+        // Copy
+        for(int i = 0; i < N-2; i++) {
+            slots[i]->returns = Np;
+            slots[i]->next = slots[i+1];
+            slots[i]->pos = 0;
+            
+            for(int n = 0; n < Np; n++) {
+                probe_entry* E = P->get( idx[ L_pos[ I_idx[ (i+1)*Np + n ]]]  );
+                page_item* I = &((page_item*) slots[i]->data)[n];
+
+                I->distance = 0;
+                I->ipd = E->getItemPointerData( I_pos[ I_idx[(i+1)*Np +n]] );
+                I->searchPage = E->getPage( I_pos[ I_idx[(i+1)*Np +n]] );
+            }
+        }
+
+        // Copy last
+        slots[N-2]->returns = a % Np;
+        if(slots[N-2]->returns == 0)
+            slots[N-2]->returns = Np;
+
+        slots[N-2]->next = NULL;
+        slots[N-2]->pos = 0;
+
+        for(int n = 0; n < slots[N-2]->returns; n++) {
+            probe_entry* E = P->get( idx[ L_pos[ I_idx[ (N-1)*Np+n]]]  );
+            page_item* I = &((page_item*) slots[N-2]->data)[n];
+
+            I->distance = 0;
+            I->ipd = E->getItemPointerData( I_pos[ I_idx[(N-1)*Np+n]] );
+            I->searchPage = E->getPage( I_pos[ I_idx[(N-1)*Np+n]] );
+        }
+
+    }
+    
+#else
     sort_item* d_r_cpu = (sort_item*) malloc(a*sizeof(sort_item));
     copy_memory_to_cpu(d_r_cpu, d_r, a*sizeof(sort_item));
 
@@ -748,14 +962,23 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
             I->searchPage = E->getPage( d_r_cpu[(N-1)*Np+n].pos );
         }
     }
+#endif
 
-    free_gpu_memory(d_a);
 
     // Cleanup
+#ifndef CUVS
+    free_gpu_memory(d_a);
     free(d_r_cpu);
+#endif
     free_gpu_memory(d_q);
     free_gpu_memory(d_r);
 
+#ifdef CUVS
+    free(L_pos);
+    free(I_pos);
+    free(I_idx);
+    free_gpu_memory(d_I);
+#endif
     return entry->returns;
 #else
     return exec_query_cpu(entry, worker);

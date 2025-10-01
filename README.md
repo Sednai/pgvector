@@ -10,7 +10,7 @@ New settings:
 
 Set bgw to `on` for using background process worker. Set in addition gpu to `on` to offload storage and compute to device.
 
-New operator for euclidean metric `WHERE` clause directly in index scan:
+New operator for `WHERE` clause directly in index scan (only for euclidean metric so far):
 
 ```tsql
 vector <!> vector_adv
@@ -38,6 +38,7 @@ Dropping a `WHERE` condition and only using instead the `<!>` operator in the `O
 Note the following current limitations of bgw:
 - No active memory management.
 - Return result set size limited by total shared memory (set at compile time with `MAX_DATA` and `MAX_QUEUE_LENGTH` )
+- Only euclidean and cosine metric implemented
  
 Note that bgw worker can be killed via `select kill_pgv_worker()` (currently the only way to release the reserved memory).
 

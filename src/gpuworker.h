@@ -23,6 +23,7 @@ typedef struct worker_exec_entry
     bool usetriangle;
     int probes;
     int op;
+    int distfunc;
     float filter;
     int limit;
     float* vector;
