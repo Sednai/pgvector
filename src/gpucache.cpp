@@ -675,7 +675,7 @@ int exec_query_gpu(worker_exec_entry* entry, worker_data_head* worker) {
     int* L_pos = (int*) malloc(L*sizeof(int));
     int* I_pos = (int*) malloc(L*sizeof(int));
 
-    #else
+#else
     // pointer to on device distance results
     sort_item* d_r;
     d_r = (sort_item*) init_gpu_memory((void**) &d_r, L*sizeof(sort_item) );

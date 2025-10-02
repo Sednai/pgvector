@@ -16,7 +16,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <cuvs/distance/distance.hpp>
-
+#include <raft/matrix/select_k.cuh>
 
 #endif
 
@@ -46,7 +46,10 @@ void copy_memory_to_gpu(void* T, void* F, int size) {
 }
 
 #ifdef CUVS
-cuvsResources_t res;
+raft::device_resources handle;
+
+//cuvsResources_t res;
+
 /*
 void init_gpu() {
     cuvsResourcesCreate(&res);
@@ -129,13 +132,7 @@ void calc_squared_euclidean_distances_cuvs(float* M, float* V, float* D, int* p,
    
    //set_sort_item<<<(N-1+THREADS_PER_BLOCK)/THREADS_PER_BLOCK,THREADS_PER_BLOCK>>>(D, C, p, N, probe);
 
-   int pos;
-      
-   cudaMemcpy(&pos,p, sizeof(int), cudaMemcpyDeviceToHost);
-   pos += N;
-   cudaMemcpy(p,&pos, sizeof(int), cudaMemcpyHostToDevice); 
-
-
+   p[0] += N;
 
    //free_gpu_memory(D,0);
    
@@ -151,7 +148,6 @@ void calc_squared_euclidean_distances_cuvs(float* M, float* V, float* D, int* p,
 }
 
 void calc_squared_cosine_distances_cuvs(float* M, float* V, float* D, int* p, int N, int L, int probe) {
-    raft::device_resources handle;
 
     auto metric = cuvs::distance::DistanceType::CosineExpanded;
     
@@ -180,14 +176,14 @@ struct cmp_item : public thrust::less<sort_item>
 
 #ifdef CUVS
 void sort_item_array_nth_gpu(float* P, int* K, int N, int k) {
-    raft::device_resources handle;
     
-    // ToDo: Change to raft select-k
-    //...
+    auto input_view = raft::make_device_matrix_view(P, 1, N);
+    auto out_idx_view = raft::make_device_matrix_view(K, 1, k);
     
-    
-    
-    thrust::sort_by_key(thrust::device, P, P + N, K );
+    auto out_extents = raft::make_extents<int32_t>(input_view.extent(0), k);
+    auto out_values  = raft::make_device_mdarray<float>(handle, out_extents);
+
+    raft::matrix::select_k<float, int32_t>(handle, input_view, std::nullopt, out_values.view(), out_idx_view, true);
 }
 
 void sort_item_array_gpu(float* P, int* K, int N) {
