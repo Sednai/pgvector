@@ -126,7 +126,7 @@ void calc_squared_euclidean_distances_cuvs(float* M, float* V, float* D, int* p,
    //float* D;
    //init_gpu_memory((void**) &D, N);
 
-   auto output_view = raft::make_device_matrix_view(D, N, 1);
+   auto output_view = raft::make_device_matrix_view(D+p[0], N, 1);
 
    cuvs::distance::pairwise_distance(handle, input_view, query_view, output_view, metric);
    
